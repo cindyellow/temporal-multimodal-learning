@@ -2,7 +2,7 @@ import json
 from data.preprocess import DataProcessor
 import os
 from data.custom_dataset import CustomDataset
-from data.utils import get_dataset, get_tokenizer, get_dataloader
+from data.utils import get_dataset, get_tokenizer, get_tabular_tokenizer, get_dataloader
 from model.model import Model
 import torch
 import pandas as pd
@@ -55,8 +55,7 @@ if __name__ == "__main__":
     parser.add_argument("-g", "--save_model", type=boolean_string, default=False, help="  ")
     parser.add_argument("-o", "--lr", type=float, default=5e-5, help="  ")
     parser.add_argument("-j", "--random_sample", type=boolean_string, default=True, help="  ")
-    parser.add_argument("-j", "--random_sample", type=boolean_string, default=True, help="  ")
-    parser.add_argument("-mm", "--use_tabular", type=boolean_string, default=True, help="  ")
+    parser.add_argument("-mm", "--use_tabular", type=boolean_string, default=False, help="  ")
 
     args = parser.parse_args()
     args_config = vars(args)
@@ -77,7 +76,7 @@ if __name__ == "__main__":
     config = {
         #    "run_name": "Run_test_TLWAN"
         "run_name": args_config["run_name"],
-        "project_path": "/vol/bitbucket/ch2223/icd-continuous-prediction",
+        "project_path": "/vol/bitbucket/ch2223/temporal-multimodal-learning",
         # pminervini/RoBERTa-base-PM-M3-Voc-hf
         # "base_checkpoint": os.path.join("", "RoBERTa-base-PM-M3-Voc-hf"),
         "base_checkpoint": "pminervini/RoBERTa-base-PM-M3-Voc-hf",
@@ -101,8 +100,7 @@ if __name__ == "__main__":
         "patience_threshold": args_config["patience_threshold"],
         "max_epochs": args_config["max_epochs"],
         "save_model": args_config["save_model"],
-        # "load_from_checkpoint": False,
-        "load_from_checkpoint": True,
+        "load_from_checkpoint": False,
         # "checkpoint_name": "Run_all_notes_last_second_transf",
         "checkpoint_name": args_config["run_name"],
         "evaluate_temporal": args_config["evaluate_temporal"],
@@ -125,31 +123,35 @@ if __name__ == "__main__":
     with open(os.path.join("", f"results/config_{config['run_name']}.json"), "w") as f:
         json.dump(config, f)
 
-    # process and aggregate raw data
-    dp = DataProcessor(dataset_path="/vol/bitbucket/ch2223/temp-mm/data/mimiciii", config=config)
-    notes_agg_df, categories_mapping, labs_agg_df = dp.aggregate_data()
-
     # get tokenizer
     tokenizer = get_tokenizer(config["base_checkpoint"])
+    tabular_tokenizer = get_tabular_tokenizer(config["tabular_base_checkpoint"])
+
+    # process and aggregate raw data
+    dp = DataProcessor(dataset_path="/vol/bitbucket/ch2223/temp-mm/data/mimiciii", 
+                       config=config, 
+                       start_token_id=(tabular_tokenizer.mask_token_id + 1))
+    notes_agg_df, categories_mapping, labs_agg_df = dp.aggregate_data()
 
     # Get training / validation / test
     dataset_config = {
         "max_chunks": config["max_chunks"],
         "setup": config["setup"],
         "limit_ds": config["limit_ds"],
+        "use_tabular": config["use_tabular"],
     }
     training_set = get_dataset(
-        notes_agg_df, "TRAIN", tokenizer=tokenizer, **dataset_config
+        notes_agg_df, labs_agg_df, "TRAIN", tokenizer=tokenizer, tabular_tokenizer=tabular_tokenizer, **dataset_config
     )
     training_generator = get_dataloader(training_set)
 
     validation_set = get_dataset(
-        notes_agg_df, "VALIDATION", tokenizer=tokenizer, **dataset_config
+        notes_agg_df, labs_agg_df, "VALIDATION", tokenizer=tokenizer, tabular_tokenizer=tabular_tokenizer, **dataset_config
     )
     validation_generator = get_dataloader(validation_set)
 
     test_set = get_dataset(
-        notes_agg_df, "TEST", tokenizer=tokenizer, **dataset_config
+        notes_agg_df, labs_agg_df, "TEST", tokenizer=tokenizer, tabular_tokenizer=tabular_tokenizer, **dataset_config
     )
     test_generator = get_dataloader(test_set)
 

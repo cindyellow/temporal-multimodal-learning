@@ -14,29 +14,52 @@ import os
 
 from model.tpberta_modeling import *
 
-from transformers import RobertaConfig, RobertaTokenizer
+from transformers import RobertaConfig
 
 class TabularEncoder(nn.Module):
     """ Encodes tabular data."""
-    def __init__(self, pretrained_dir, hidden_size=758, num_labels=50):
+    def __init__(self, pretrained_dir, num_labels=50):
         super().__init__() 
 
         # Use pretrained encoder
-        tp_config = RobertaConfig.from_pretrained(pretrained_dir)
-        self.model = TPBertaForClassification.from_pretrained(os.path.join(pretrained_dir, 'pytorch_models/best'), config=tp_config, num_class=num_labels)
-        self.tabular_tokenizer = RobertaTokenizer.from_pretrained(pretrained_dir)
+        self.config = RobertaConfig.from_pretrained(pretrained_dir)
+        self.model = TPBertaForClassification.from_pretrained(os.path.join(pretrained_dir, 'pytorch_models/best'), config=self.config, num_class=num_labels)
 
-    def forward(self, input_ids, input_scales, token_type_ids, position_ids, features_cls_mask, cutoffs=None):
-        x_qk, x_v = self.model.tpberta.embeddings(input_ids=input_ids, input_scales=input_scales, \
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+    def forward(self, input_ids, input_scales, token_type_ids, position_ids, features_cls_mask):
+        embedding_output = self.model.tpberta.embeddings(input_ids=input_ids, input_scales=input_scales, \
                           token_type_ids=token_type_ids, position_ids=position_ids)
 
         feature_chunk = self.model.tpberta.intra_attention(
-            (torch.squeeze(x_qk), torch.squeeze(x_v)),
-            query_mask=torch.squeeze(features_cls_mask),
-            input_ids=torch.squeeze(input_ids),
+            embedding_output,
+            query_mask=features_cls_mask,
+            input_ids=input_ids,
         )
 
+        if torch.any(torch.isnan(feature_chunk)):
+            # print("Emb:", embedding_output)
+            print("Emb qk NAs:", torch.any(torch.isnan(embedding_output[0])))
+            print("Emb v NAs:", torch.any(torch.isnan(embedding_output[1])))
+            # print("W_q:", self.model.tpberta.intra_attention.W_q.weight)
+
         return feature_chunk
+
+class TabularMapper(nn.Module):
+    """Map tabular embeddings to chunk embedding space.
+    """
+    def __init__(self, tabular_dim, chunk_dim):
+        super().__init__() 
+
+        self.linear = nn.Linear(tabular_dim, chunk_dim)
+        self.relu = nn.LeakyReLU()
+    
+    def forward(self, tabular_emb):
+        mapped_emb = self.linear(tabular_emb)
+        mapped_emb = self.relu(mapped_emb)
+
+        return mapped_emb
 
 
 class LabelAttentionClassifier(nn.Module):
@@ -314,6 +337,8 @@ class Model(nn.Module):
         # tabular encoder
         if self.use_tabular:
             self.tabular_encoder = TabularEncoder(self.tabular_base_checkpoint)
+            self.tabular_dim = self.tabular_encoder.config.hidden_size
+            self.tabular_mapper = TabularMapper(self.tabular_dim, self.hidden_size)
 
     def _initialize_embeddings(self):
         self.pelookup = nn.parameter.Parameter(
@@ -345,10 +370,12 @@ class Model(nn.Module):
             requires_grad=True,
         )
     
-    def _combine_sequences(note_sequence, tabular_sequence, note_times, tabular_times):
+    def combine_sequences(self, note_sequence, tabular_sequence, note_times, 
+                           tabular_times):
         combined_matrix = torch.cat([note_sequence, tabular_sequence], dim=0) # (N+M) x D
-        
         combined_times = torch.cat([note_times, tabular_times])
+
+        assert combined_matrix.shape[0] == combined_times.shape[0]
         
         # Get sorted index of times
         sorted_indices = torch.argsort(combined_times)
@@ -414,23 +441,44 @@ class Model(nn.Module):
         ]  # remove the singleton to get something of shape [#chunks, hidden_size] or [#chunks*512, hidden_size]
 
         # TODO: add tabular data here
-        if self.use_tabular:
-            tabular_input_ids = tabular_data['input_ids']
-            tabular_input_scales = tabular_data['input_scales']
-            features_cls_mask = tabular_data['features_cls_mask']
-            tabular_token_type_ids = tabular_data['token_type_ids']
-            tabular_position_ids = tabular_data['position_ids']
-            tabular_percent_elapsed = tabular_data['percent_elapsed']
-            tabular_cutoffs = tabular_data['cutoffs']
+        if self.use_tabular and tabular_data:
+            tabular_input_ids = tabular_data['input_ids'][0].to(self.device, dtype=torch.long)
+            tabular_input_scales = tabular_data['input_scales'][0].to(self.device, dtype=torch.float32)
+            features_cls_mask = tabular_data['features_cls_mask'][0].to(self.device, dtype=torch.long)
+            tabular_token_type_ids = tabular_data['token_type_ids'][0].to(self.device, dtype=torch.long)
+            tabular_position_ids = tabular_data['position_ids'][0].to(self.device, dtype=torch.long)
+            tabular_percent_elapsed = tabular_data['percent_elapsed'][0].to(self.device, dtype=torch.float16)
+            assert not torch.any(torch.isnan(tabular_input_ids)) and not torch.any(torch.isinf(tabular_input_ids))
+            assert not torch.any(torch.isnan(tabular_input_scales)) and not torch.any(torch.isinf(tabular_input_scales))
+            assert not torch.any(torch.isnan(features_cls_mask)) and not torch.any(torch.isinf(features_cls_mask))
+            assert not torch.any(torch.isnan(tabular_token_type_ids)) and not torch.any(torch.isinf(tabular_token_type_ids))
+            assert not torch.any(torch.isnan(tabular_position_ids)) and not torch.any(torch.isinf(tabular_position_ids)) 
+            assert not torch.any(torch.isnan(tabular_percent_elapsed)) and not torch.any(torch.isinf(tabular_percent_elapsed))
+            
             tabular_output = self.tabular_encoder(tabular_input_ids, tabular_input_scales, tabular_token_type_ids, tabular_position_ids, features_cls_mask)
-            sequence_output, _ = self._combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+            tabular_output = tabular_output[:, 0, :]
+            if torch.any(torch.isnan(tabular_output)):
+                torch.save(
+                {
+                    "model_state_dict": self.tabular_encoder.state_dict(),
+                },
+                'issue.pth',
+                )
+            assert not torch.any(torch.isnan(tabular_output))
+            tabular_output = self.tabular_mapper(tabular_output)
+            assert not torch.any(torch.isnan(tabular_output))
+            assert not torch.any(torch.isnan(sequence_output))
+            sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
 
+            assert not torch.any(torch.isnan(sequence_output))
+        
         # if not baseline, add document autoregressor
         if not self.is_baseline:
             # document regressor returns document embeddings and predicted categories
             sequence_output = self.document_regressor(
                 sequence_output.view(-1, 1, self.hidden_size)
             )
+            assert not torch.any(torch.isnan(sequence_output))
         # make aux predictions
         if self.aux_task in ("next_document_embedding", "last_document_embedding"):
             if self.apply_transformation:

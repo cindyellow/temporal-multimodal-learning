@@ -6,6 +6,7 @@ import numpy as np
 import torch.nn.functional as F
 import json
 import ipdb
+from data.utils import get_cutoffs
 
 
 def return_attn_scores(lwan, encoding, all_tokens=True, cutoffs=None):
@@ -110,6 +111,7 @@ def evaluate(
     setup="latest",
     reduce_computation=False,
     qualitative_evaluation=False,
+    use_tabular=False,
 ):
     """ Evaluate the model on the validation set.
     """
@@ -133,15 +135,35 @@ def evaluate(
         for t, data in enumerate(tqdm(generator)):
             # TODO: fix code so that sequence ids embeddings can be used
             # right now they cannot be used
+            labels = data["notes"]["label"][0][: model.num_labels]
+            input_ids = data["notes"]["input_ids"][0]
+            attention_mask = data["notes"]["attention_mask"][0]
+            seq_ids = data["notes"]["seq_ids"][0]
+            category_ids = data["notes"]["category_ids"][0]
+            percent_elapsed = data["notes"]["percent_elapsed"][0]
+            avail_docs = seq_ids.max().item() + 1
+            # note_end_chunk_ids = data["notes"]["note_end_chunk_ids"]
+            hours_elapsed = data["notes"]["hours_elapsed"][0]
+            cutoffs = data["notes"]["cutoffs"]
+
+            if use_tabular and len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
+                tabular_data = data["tabular"]
+                # update category ids and cutoffs
+                tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
+                combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
+                cutoffs = get_cutoffs(combined_hours, combined_cat)
+            else:
+                tabular_data=None
             if setup == "random":
-                labels = data["label"][0][: model.num_labels]
-                input_ids = data["input_ids"][0]
-                attention_mask = data["attention_mask"][0]
-                seq_ids = data["seq_ids"][0]
-                category_ids = data["category_ids"][0]
-                avail_docs = seq_ids.max().item() + 1
-                # note_end_chunk_ids = data["note_end_chunk_ids"]
-                cutoffs = data["cutoffs"]
+                # labels = data["notes"]["label"][0][: model.num_labels]
+                # input_ids = data["notes"]["input_ids"][0]
+                # attention_mask = data["notes"]["attention_mask"][0]
+                # seq_ids = data["notes"]["seq_ids"][0]
+                # category_ids = data["notes"]["category_ids"][0]
+                # percent_elapsed = data["notes"]["percent_elapsed"][0]
+                # avail_docs = seq_ids.max().item() + 1
+                # # note_end_chunk_ids = data["notes"]["note_end_chunk_ids"]
+                # cutoffs = data["notes"]["cutoffs"]
 
                 complete_sequence_output = []
                 # run through data in chunks of max_chunks
@@ -161,7 +183,11 @@ def evaluate(
                             device, dtype=torch.long
                         ),
                         cutoffs=None,
+                        percent_elapsed=percent_elapsed[i : i + model.max_chunks].to(
+                            device, dtype=torch.long
+                        ),
                         is_evaluation=True,
+                        tabular_data=tabular_data,
                         # note_end_chunk_ids=note_end_chunk_ids,
                     )
                     complete_sequence_output.append(sequence_output)
@@ -171,6 +197,7 @@ def evaluate(
                 # run through LWAN to get the scores
                 scores = model.label_attn(sequence_output, cutoffs=cutoffs)
                 if qualitative_evaluation:
+                    # NOTE: didn't adapt for tabular
                     attn_output_weights, scores = return_attn_scores(
                         model.label_attn, sequence_output.to(device), cutoffs=cutoffs
                     )
@@ -183,14 +210,15 @@ def evaluate(
                     )
 
             else:
-                labels = data["label"][0][: model.num_labels]
-                input_ids = data["input_ids"][0]
-                attention_mask = data["attention_mask"][0]
-                seq_ids = data["seq_ids"][0]
-                category_ids = data["category_ids"][0]
-                avail_docs = seq_ids.max().item() + 1
-                # note_end_chunk_ids = data["note_end_chunk_ids"]
-                cutoffs = data["cutoffs"]
+                # labels = data["notes"]["label"][0][: model.num_labels]
+                # input_ids = data["notes"]["input_ids"][0]
+                # attention_mask = data["notes"]["attention_mask"][0]
+                # seq_ids = data["notes"]["seq_ids"][0]
+                # category_ids = data["notes"]["category_ids"][0]
+                # percent_elapsed = data["notes"]["percent_elapsed"][0]
+                # avail_docs = seq_ids.max().item() + 1
+                # # note_end_chunk_ids = data["notes"]["note_end_chunk_ids"]
+                # cutoffs = data["notes"]["cutoffs"]
 
                 scores, _, aux_predictions = model(
                     input_ids=input_ids.to(device, dtype=torch.long),
@@ -198,7 +226,9 @@ def evaluate(
                     seq_ids=seq_ids.to(device, dtype=torch.long),
                     category_ids=category_ids.to(device, dtype=torch.long),
                     cutoffs=cutoffs,
+                    percent_elapsed=percent_elapsed.to(device, dtype=torch.long),
                     # note_end_chunk_ids=note_end_chunk_ids,
+                    tabular_data=tabular_data,
                 )
             if aux_task == "next_document_category":
                 if len(category_ids) > 1 and aux_predictions is not None:
@@ -212,7 +242,7 @@ def evaluate(
                     preds["refs_aux"].append(true_categories.detach().cpu().numpy())
 
             probs = F.sigmoid(scores)
-            ids.append(data["hadm_id"][0].item())
+            ids.append(data["notes"]["hadm_id"][0].item())
             avail_doc_count.append(avail_docs)
             preds["hyps"].append(probs[-1, :].detach().cpu().numpy())
             preds["refs"].append(labels.detach().cpu().numpy())

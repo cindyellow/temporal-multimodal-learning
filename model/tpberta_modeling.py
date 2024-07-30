@@ -68,10 +68,9 @@ class TPBertaEmbeddings(RobertaEmbeddings):
 
         assert token_type_ids is not None
         assert position_ids is not None
-        
+    
         inputs_embeds = self.word_embeddings(input_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-
         embeddings = inputs_embeds + token_type_embeddings
         v_embeddings = embeddings.clone() # embeddings for value vectors have no position info
         v_embeddings = self.LayerNorm(v_embeddings)
@@ -83,6 +82,7 @@ class TPBertaEmbeddings(RobertaEmbeddings):
         qk_embeddings = self.LayerNorm(embeddings)
         qk_embeddings = self.dropout(qk_embeddings)
         qk_embeddings *= input_scales[..., None] # numerical vectors x their value scales
+
         return qk_embeddings, v_embeddings
 
 
@@ -131,6 +131,7 @@ class IntraFeatureAttention(nn.Module):
         q = self.W_q(query) # f, d
         k, v = self.W_k(x_qk), self.W_v(x_v) # b*l, d
 
+
         for _x in [q, k, v]:
             assert _x.shape[-1] % self.n_heads == 0
         d_head_key = k.shape[-1] // self.n_heads
@@ -140,10 +141,21 @@ class IntraFeatureAttention(nn.Module):
         k = k.reshape(b*l, self.n_heads, d_head_key).transpose(0,1) # n_heads, b*l, _d
         attention_mask = (1.0 - attention_mask.float()) * -10000
         attention = F.softmax(
-            q @ k.transpose(1,2) / math.sqrt(d_head_key)
+            q @ k.transpose(1,2) / (math.sqrt(d_head_key) + 1e-8) # NOTE: added 1e-8 for stability
             + attention_mask[None], 
             dim=-1
         ) # n_heads, f, b*l
+        # attention = F.softmax(
+        #     10 * torch.tanh(q @ k.transpose(1,2) / (math.sqrt(d_head_key) + 1e-8)) # NOTE: added 1e-8 for stability
+        #     + attention_mask[None], 
+        #     dim=-1
+        # ) # n_heads, f, b*l
+        assert not torch.any(torch.isinf(q))
+        assert not torch.any(torch.isinf(k))
+        assert not torch.any(torch.isinf(attention_mask))
+        assert not torch.any(torch.isinf(attention))
+        # if torch.any(torch.isnan(attention)):
+        #     print("after softmax:", attention)
         attention = self.dropout(attention)
         v = v.reshape(b*l, self.n_heads, d_head_value).transpose(0,1) # n_heads, b*l, _d
         x = attention @ v # n_heads, f, _d
