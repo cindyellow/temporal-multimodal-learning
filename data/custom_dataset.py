@@ -45,6 +45,7 @@ class CustomDataset(Dataset):
         setup="latest",  # 'uniform
         limit_ds=0,
         batch_size=None,
+        use_tabular=False,
     ):
         self.notes_agg_df = notes_agg_df
         self.labs_agg_df = labs_agg_df
@@ -54,6 +55,7 @@ class CustomDataset(Dataset):
         self.batch_size = batch_size
         self.setup = setup
         self.limit_ds = limit_ds
+        self.use_tabular = use_tabular
         np.random.seed(1)
 
     def __len__(self):
@@ -90,19 +92,6 @@ class CustomDataset(Dataset):
                 if hour < 13 * 24:
                     cutoffs["13d"] = i
                 cutoffs["noDS"] = i
-            # cutoffs['all'] = i
-        return cutoffs
-
-    def _get_tab_cutoffs(self, hours_elapsed):
-        cutoffs = {"2d": -1, "5d": -1, "13d": -1, "noDS": -1, "all": -1}
-        for i, hour in enumerate(hours_elapsed):
-            if hour < 2 * 24:
-                cutoffs["2d"] = i
-            if hour < 5 * 24:
-                cutoffs["5d"] = i
-            if hour < 13 * 24:
-                cutoffs["13d"] = i
-            cutoffs["noDS"] = i
             # cutoffs['all'] = i
         return cutoffs
 
@@ -145,12 +134,13 @@ class CustomDataset(Dataset):
         Adapted from TP-BERTa. Encode tabular data (labs) for an HADM_ID's data.
         """
         if data.empty:
-            return {'input_ids': None,
-                'input_scales': None,
-                'features_cls_mask': None,
-                'token_type_ids': None,
-                'position_ids': None,
-                'hours_elapsed': None}
+            return {'input_ids': [],
+                'input_scales': [],
+                'features_cls_mask': [],
+                'token_type_ids': [],
+                'position_ids': [],
+                'hours_elapsed': [],
+                'percent_elapsed': []}
         
         data = data.squeeze(axis=0) # convert to pd series
         
@@ -203,8 +193,7 @@ class CustomDataset(Dataset):
             list(
                 itertools.chain.from_iterable(
                     [
-                        [data.HOURS_ELAPSED[i]] * num_num_token
-                        for i in range(N)
+                        [data.HOURS_ELAPSED[i]] for i in range(N) # one per feature row
                     ]
                 )
             )
@@ -212,13 +201,13 @@ class CustomDataset(Dataset):
 
         percent_elapsed = np.array(data.PERCENT_ELAPSED)
         
-        return {'input_ids': num_fix_part.astype(int),
-                'input_scales': num_input_scales.astype(np.float32),
-                'features_cls_mask': num_feature_cls_mask.astype(int),
-                'token_type_ids': num_token_types.astype(int),
-                'position_ids': num_position_ids.astype(int),
+        return {'input_ids': num_fix_part,
+                'input_scales': num_input_scales,
+                'features_cls_mask': num_feature_cls_mask,
+                'token_type_ids': num_token_types,
+                'position_ids': num_position_ids,
                 'hours_elapsed': hours_elapsed,
-                'percent_elapsed': percent_elapsed.astype(np.float32)}
+                'percent_elapsed': percent_elapsed}
     
     def __getitem__(self, idx):
         np.random.seed(1)
@@ -260,7 +249,17 @@ class CustomDataset(Dataset):
             )
         )
 
-        percent_elapsed = np.array(data.PERCENT_ELAPSED).astype(np.float32)
+        percent_elapsed = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [data.PERCENT_ELAPSED[i]] * len(output[i]["input_ids"])
+                        for i in range(len(output))
+                    ]
+                )
+            )
+        )
+
         label = torch.FloatTensor(data.ICD9_CODE_BINARY)
 
         input_ids = input_ids[:]
@@ -269,18 +268,6 @@ class CustomDataset(Dataset):
         category_ids = torch.LongTensor(category_ids)
         seq_ids = seq_ids[:]
         category_ids = category_ids[:]
-
-        ## NOTE: process lab data ##
-        lab_data = self.encode_tabular(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id])
-        tabular_input_ids = lab_data['input_ids']
-        tabular_input_scales = lab_data['input_scales']
-        features_cls_mask = lab_data['features_cls_mask']
-        tabular_token_type_ids = lab_data['token_type_ids']
-        tabular_position_ids = lab_data['position_ids']
-        tabular_hours_elapsed = lab_data['hours_elapsed']
-        tabular_percent_elapsed = lab_data['percent_elapsed']
-        tabular_cutoffs = self._get_tab_cutoffs(tabular_hours_elapsed)
-        
 
         # if latest setup, select last max_chunks
         if self.setup == "latest":
@@ -327,7 +314,46 @@ class CustomDataset(Dataset):
         seq_ids = seq_ids.apply_(seq_id_dict.get)
         cutoffs = self._get_cutoffs(hours_elapsed, category_ids)
 
-        encoded['notes'] = {
+        if self.use_tabular:
+            lab_data = self.encode_tabular(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id])
+            if self.setup == "latest":
+                encoded["tabular"] = {
+                    "input_ids": lab_data['input_ids'][-self.max_chunks :],
+                    "input_scales": lab_data['input_scales'][-self.max_chunks :],
+                    "features_cls_mask": lab_data['features_cls_mask'][-self.max_chunks :],
+                    "token_type_ids": lab_data['token_type_ids'][-self.max_chunks :],
+                    "position_ids": lab_data['position_ids'][-self.max_chunks :],
+                    "hours_elapsed": lab_data['hours_elapsed'][-self.max_chunks :],
+                    "percent_elapsed": lab_data['percent_elapsed'][-self.max_chunks :],
+                }
+            elif self.setup == "uniform":
+                raise NotImplementedError
+                indices_mask = self.filter_mask(np.array(seq_ids))
+                print(indices_mask)
+                input_ids = input_ids[indices_mask]
+                print(input_ids)
+                encoded["tabular"] = {
+                    "input_ids": lab_data['input_ids'][indices_mask],
+                    "input_scales": lab_data['input_scales'][indices_mask],
+                    "features_cls_mask": lab_data['features_cls_mask'][indices_mask],
+                    "token_type_ids": lab_data['token_type_ids'][indices_mask],
+                    "position_ids": lab_data['position_ids'][indices_mask],
+                    "hours_elapsed": lab_data['hours_elapsed'][indices_mask],
+                    "percent_elapsed": lab_data['percent_elapsed'][indices_mask],
+                }
+
+            elif self.setup == "random":
+                encoded["tabular"] = {
+                    "input_ids": lab_data['input_ids'],
+                    "input_scales": lab_data['input_scales'],
+                    "features_cls_mask": lab_data['features_cls_mask'],
+                    "token_type_ids": lab_data['token_type_ids'],
+                    "position_ids": lab_data['position_ids'],
+                    "hours_elapsed": lab_data['hours_elapsed'],
+                    "percent_elapsed": lab_data['percent_elapsed'],
+                }
+
+        encoded["notes"] = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "seq_ids": seq_ids,
@@ -337,17 +363,6 @@ class CustomDataset(Dataset):
             "hours_elapsed": hours_elapsed,
             "percent_elapsed": percent_elapsed,
             "cutoffs": cutoffs
-            }
-        
-        encoded['tabular'] = {
-            "input_ids": tabular_input_ids,
-            "input_scales": tabular_input_scales,
-            "features_cls_mask": features_cls_mask,
-            "token_type_ids": tabular_token_type_ids,
-            "position_ids": tabular_position_ids,
-            "hours_elapsed": tabular_hours_elapsed,
-            "percent_elapsed": tabular_percent_elapsed,
-            "cutoffs": tabular_cutoffs
             }
         
         return encoded

@@ -100,10 +100,15 @@ class DataProcessor:
 
         new_df = pd.merge(df[['SUBJECT_ID', 'HADM_ID']], df.pivot(columns='LABEL', values='VALUENUM'), left_index=True, right_index=True)
         
-        # normalize features
+        # normalize features with train set
+        new_df = new_df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
         normalizer = StandardScaler()
-        new_df[important_features] = normalizer.fit_transform(new_df[important_features])
+        new_df.loc[new_df.SPLIT == 'TRAIN', important_features] = normalizer.fit_transform(new_df.loc[new_df.SPLIT == 'TRAIN', important_features])
+        new_df.loc[new_df.SPLIT == 'VALIDATION', important_features] = normalizer.transform(new_df.loc[new_df.SPLIT == 'VALIDATION', important_features])
+        new_df.loc[new_df.SPLIT == 'TEST', important_features] = normalizer.transform(new_df.loc[new_df.SPLIT == 'TEST', important_features])
 
+        new_df['is_na'] = new_df[important_features].isnull().all(1)
+        new_df = new_df[new_df['is_na'] == False]
         bin_names = []
         for ft in important_features:
             new_df[f'{ft}_BIN'] = pd.qcut(new_df[ft], q=[0, .25, .5, .75, 1.], labels=[1,2,3,4])
@@ -251,8 +256,8 @@ class DataProcessor:
     def _calculate_percent_elapsed(self, s):
         return [
                 (s.CHARTTIME[i] - s.ADMISSION_TIME) / (s.DISCHARGE_TIME - s.ADMISSION_TIME) if s.DISCHARGE_TIME - s.ADMISSION_TIME > pd.Timedelta(0) else 1
-                for i in range(len(s.CHARTTIME) - 1)
-            ]
+                for i in range(len(s.CHARTTIME)) # NOTE: edited to include percent elapsed for discharge summary
+            ] # TODO: ensure DS percent is always largest
     
     def add_temporal_information(self, agg_df, adm_disch_time):
         """Add time information."""

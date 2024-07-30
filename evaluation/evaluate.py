@@ -96,6 +96,38 @@ def update_weights_per_class(
             )
     return weights_per_class
 
+def select_tabular_window(tabular_data, percent_elapsed, max_chunks):
+    # filter tabular data to this time window
+    middle_indices = np.where(
+            np.logical_and(tabular_data['percent_elapsed'] > percent_elapsed[0],  
+                           tabular_data['percent_elapsed'] > percent_elapsed[-1])
+    )[0]
+    middle_indices = np.sort(
+            np.random.choice(
+                middle_indices,
+                max(
+                    0,
+                    min(
+                        len(middle_indices),
+                        max_chunks,
+                    ),
+                ),
+                replace=False,
+            )
+        )
+    
+    if middle_indices.size == 0:
+        return None
+    
+    return {"input_ids": tabular_data['input_ids'][middle_indices],
+            "input_scales": tabular_data['input_scales'][middle_indices],
+            "features_cls_mask": tabular_data['features_cls_mask'][middle_indices],
+            "token_type_ids": tabular_data['token_type_ids'][middle_indices],
+            "position_ids": tabular_data['position_ids'][middle_indices],
+            "hours_elapsed": tabular_data['hours_elapsed'][middle_indices],
+            "percent_elapsed": tabular_data['percent_elapsed'][middle_indices],
+            }
+
 
 def evaluate(
     mymetrics,
@@ -169,6 +201,9 @@ def evaluate(
                 # run through data in chunks of max_chunks
                 for i in range(0, input_ids.shape[0], model.max_chunks):
                     # only get the document embeddings
+                    tabular_subset = select_tabular_window(tabular_data, 
+                                                           percent_elapsed[i : i + model.max_chunks], 
+                                                           model.max_chunks)
                     sequence_output = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
@@ -187,7 +222,7 @@ def evaluate(
                             device, dtype=torch.long
                         ),
                         is_evaluation=True,
-                        tabular_data=tabular_data,
+                        tabular_data=tabular_subset,
                         # note_end_chunk_ids=note_end_chunk_ids,
                     )
                     complete_sequence_output.append(sequence_output)
