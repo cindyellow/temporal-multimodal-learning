@@ -18,15 +18,24 @@ from transformers import RobertaConfig
 
 class TabularEncoder(nn.Module):
     """ Encodes tabular data."""
-    def __init__(self, pretrained_dir, num_labels=50):
+    def __init__(self, pretrained_dir, num_labels=50, frozen=True):
         super().__init__() 
 
         # Use pretrained encoder
         self.config = RobertaConfig.from_pretrained(pretrained_dir)
         self.model = TPBertaForClassification.from_pretrained(os.path.join(pretrained_dir, 'pytorch_models/best'), config=self.config, num_class=num_labels)
 
-        for param in self.model.parameters():
-            param.requires_grad = False
+        if frozen:
+            for param in self.model.parameters():
+                param.requires_grad = False
+        else:
+            # freeze everything except embeddings
+            for param in self.model.parameters():
+                param.requires_grad = False
+            for param in self.model.tpberta.embeddings.parameters():
+                param.requires_grad = True
+            for param in self.model.tpberta.intra_attention.parameters():
+                param.requires_grad = True
 
     def forward(self, input_ids, input_scales, token_type_ids, position_ids, features_cls_mask):
         embedding_output = self.model.tpberta.embeddings(input_ids=input_ids, input_scales=input_scales, \
@@ -442,12 +451,12 @@ class Model(nn.Module):
 
         # TODO: add tabular data here
         if self.use_tabular and tabular_data:
-            tabular_input_ids = tabular_data['input_ids'][0].to(self.device, dtype=torch.long)
-            tabular_input_scales = tabular_data['input_scales'][0].to(self.device, dtype=torch.float32)
-            features_cls_mask = tabular_data['features_cls_mask'][0].to(self.device, dtype=torch.long)
-            tabular_token_type_ids = tabular_data['token_type_ids'][0].to(self.device, dtype=torch.long)
-            tabular_position_ids = tabular_data['position_ids'][0].to(self.device, dtype=torch.long)
-            tabular_percent_elapsed = tabular_data['percent_elapsed'][0].to(self.device, dtype=torch.float16)
+            tabular_input_ids = torch.squeeze(tabular_data['input_ids'], 0).to(self.device, dtype=torch.long)
+            tabular_input_scales = torch.squeeze(tabular_data['input_scales'], 0).to(self.device, dtype=torch.float32)
+            features_cls_mask = torch.squeeze(tabular_data['features_cls_mask'], 0).to(self.device, dtype=torch.long)
+            tabular_token_type_ids = torch.squeeze(tabular_data['token_type_ids'], 0).to(self.device, dtype=torch.long)
+            tabular_position_ids = torch.squeeze(tabular_data['position_ids'], 0).to(self.device, dtype=torch.long)
+            tabular_percent_elapsed = torch.squeeze(tabular_data['percent_elapsed'], 0).to(self.device, dtype=torch.float16)
             assert not torch.any(torch.isnan(tabular_input_ids)) and not torch.any(torch.isinf(tabular_input_ids))
             assert not torch.any(torch.isnan(tabular_input_scales)) and not torch.any(torch.isinf(tabular_input_scales))
             assert not torch.any(torch.isnan(features_cls_mask)) and not torch.any(torch.isinf(features_cls_mask))
