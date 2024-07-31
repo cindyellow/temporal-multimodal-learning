@@ -76,7 +76,7 @@ class Trainer:
 
         self.CosineLoss = nn.CosineEmbeddingLoss(reduction="mean")
     
-    def random_sampling(self, data):
+    def random_sampling(self, data, max_chunks):
         input_ids = data["input_ids"][0]
         assert input_ids.shape[0] > 0
 
@@ -85,13 +85,13 @@ class Trainer:
             indices_mask = np.arange(num_idxs)
             indices_mask = np.sort(
                 np.random.choice(
-                    indices_mask, min(num_idxs, self.max_chunks), replace=False
+                    indices_mask, min(num_idxs, max_chunks), replace=False
                 )
             )
         else:
             # select last self.max_chunks indices
             indices_mask = np.arange(
-                max(0, input_ids.shape[0] - self.max_chunks), input_ids.shape[0]
+                max(0, input_ids.shape[0] - max_chunks), input_ids.shape[0]
             )
         
         new_data = {}
@@ -187,7 +187,7 @@ class Trainer:
             for t, data in enumerate(tqdm(training_generator)):
                 hadm_id = data["notes"]["hadm_id"]
                 if self.setup == "random":
-                    aug_data = self.random_sampling(data["notes"])
+                    aug_data = self.random_sampling(data["notes"], self.max_chunks)
                     labels = aug_data["labels"]
                     input_ids = aug_data["input_ids"]
                     attention_mask = aug_data["attention_mask"]
@@ -211,7 +211,7 @@ class Trainer:
                     tabular_data = data["tabular"]
                     tabular_hours_elapsed = tabular_data['hours_elapsed'][0]
                     if self.setup == "random":
-                        tabular_data = self.random_sampling(data["tabular"])
+                        tabular_data = self.random_sampling(data["tabular"], self.max_tabular_features)
                         tabular_hours_elapsed = tabular_data['hours_elapsed']
                     # update cutoffs
                     tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1

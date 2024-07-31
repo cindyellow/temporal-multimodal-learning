@@ -56,6 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--lr", type=float, default=5e-5, help="  ")
     parser.add_argument("-j", "--random_sample", type=boolean_string, default=True, help="  ")
     parser.add_argument("-mm", "--use_tabular", type=boolean_string, default=False, help="  ")
+    parser.add_argument("-nt", "--num_tabular_features", type=int, default=10, help="  ")
 
     args = parser.parse_args()
     args_config = vars(args)
@@ -117,7 +118,8 @@ if __name__ == "__main__":
         "apply_temporal_loss": args_config["apply_temporal_loss"],
         "random_sample": args_config["random_sample"],
         "use_tabular": args_config["use_tabular"],
-        "tabular_base_checkpoint": "model/tpberta-single/tp-bin"
+        "tabular_base_checkpoint": "model/tpberta-single/tp-bin",
+        "max_tabular_features": args_config["num_tabular_features"],
 
     }
     with open(os.path.join("", f"results/config_{config['run_name']}.json"), "w") as f:
