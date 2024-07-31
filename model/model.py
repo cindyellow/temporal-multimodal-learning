@@ -18,18 +18,19 @@ from transformers import RobertaConfig
 
 class TabularEncoder(nn.Module):
     """ Encodes tabular data."""
-    def __init__(self, pretrained_dir, num_labels=50, frozen=True):
+    def __init__(self, pretrained_dir, num_labels=50, freeze_tabular=True):
         super().__init__() 
 
         # Use pretrained encoder
         self.config = RobertaConfig.from_pretrained(pretrained_dir)
         self.model = TPBertaForClassification.from_pretrained(os.path.join(pretrained_dir, 'pytorch_models/best'), config=self.config, num_class=num_labels)
 
-        if frozen:
+        if freeze_tabular:
             for param in self.model.parameters():
                 param.requires_grad = False
         else:
             # freeze everything except embeddings
+            print("Finetuning tabular encoder.")
             for param in self.model.parameters():
                 param.requires_grad = False
             for param in self.model.tpberta.embeddings.parameters():
@@ -345,7 +346,7 @@ class Model(nn.Module):
         
         # tabular encoder
         if self.use_tabular:
-            self.tabular_encoder = TabularEncoder(self.tabular_base_checkpoint)
+            self.tabular_encoder = TabularEncoder(self.tabular_base_checkpoint, freeze_tabular=self.freeze_tabular)
             self.tabular_dim = self.tabular_encoder.config.hidden_size
             self.tabular_mapper = TabularMapper(self.tabular_dim, self.hidden_size)
 
@@ -378,6 +379,9 @@ class Model(nn.Module):
             torch.normal(0, 0.1, size=(15, 1, self.hidden_size), dtype=torch.float),
             requires_grad=True,
         )
+    
+    def _squeeze_data(self, tabular_data):
+        return {k:v[0] for k,v in tabular_data.items()}
     
     def combine_sequences(self, note_sequence, tabular_sequence, note_times, 
                            tabular_times):
@@ -451,12 +455,14 @@ class Model(nn.Module):
 
         # TODO: add tabular data here
         if self.use_tabular and tabular_data:
-            tabular_input_ids = torch.squeeze(tabular_data['input_ids'], 0).to(self.device, dtype=torch.long)
-            tabular_input_scales = torch.squeeze(tabular_data['input_scales'], 0).to(self.device, dtype=torch.float32)
-            features_cls_mask = torch.squeeze(tabular_data['features_cls_mask'], 0).to(self.device, dtype=torch.long)
-            tabular_token_type_ids = torch.squeeze(tabular_data['token_type_ids'], 0).to(self.device, dtype=torch.long)
-            tabular_position_ids = torch.squeeze(tabular_data['position_ids'], 0).to(self.device, dtype=torch.long)
-            tabular_percent_elapsed = torch.squeeze(tabular_data['percent_elapsed'], 0).to(self.device, dtype=torch.float16)
+            if len(tabular_data['input_ids'].shape) > 2:
+                tabular_data = {k:v[0] for k,v in tabular_data.items()}
+            tabular_input_ids = tabular_data['input_ids'].to(self.device, dtype=torch.long)
+            tabular_input_scales = tabular_data['input_scales'].to(self.device, dtype=torch.float32)
+            features_cls_mask = tabular_data['features_cls_mask'].to(self.device, dtype=torch.long)
+            tabular_token_type_ids = tabular_data['token_type_ids'].to(self.device, dtype=torch.long)
+            tabular_position_ids = tabular_data['position_ids'].to(self.device, dtype=torch.long)
+            tabular_percent_elapsed = tabular_data['percent_elapsed'].to(self.device, dtype=torch.float16)
             assert not torch.any(torch.isnan(tabular_input_ids)) and not torch.any(torch.isinf(tabular_input_ids))
             assert not torch.any(torch.isnan(tabular_input_scales)) and not torch.any(torch.isinf(tabular_input_scales))
             assert not torch.any(torch.isnan(features_cls_mask)) and not torch.any(torch.isinf(features_cls_mask))
