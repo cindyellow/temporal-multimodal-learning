@@ -58,6 +58,8 @@ if __name__ == "__main__":
     parser.add_argument("-mm", "--use_tabular", type=boolean_string, default=False, help="  ")
     parser.add_argument("-nt", "--num_tabular_features", type=int, default=10, help="  ")
     parser.add_argument("-ft", "--freeze_tabular", type=boolean_string, default=True, help="  ")
+    parser.add_argument('-kl','--k_list', nargs='+', type=int, default=[4], help="List of bin numbers to try")
+    parser.add_argument('-pf','--pool_features', type=str, default="none", help="options: max, sum, none")
 
     args = parser.parse_args()
     args_config = vars(args)
@@ -122,8 +124,13 @@ if __name__ == "__main__":
         "tabular_base_checkpoint": "model/tpberta-single/tp-bin",
         "max_tabular_features": args_config["num_tabular_features"],
         "freeze_tabular": args_config["freeze_tabular"],
+        "k_list": args_config["k_list"],
+        "pool_features": args_config["pool_features"]
 
     }
+
+    print("Bin param", config['k_list'])
+    
     with open(os.path.join("", f"results/config_{config['run_name']}.json"), "w") as f:
         json.dump(config, f)
 
@@ -143,6 +150,7 @@ if __name__ == "__main__":
         "setup": config["setup"],
         "limit_ds": config["limit_ds"],
         "use_tabular": config["use_tabular"],
+        "k_list": config["k_list"]
     }
     training_set = get_dataset(
         notes_agg_df, labs_agg_df, "TRAIN", tokenizer=tokenizer, tabular_tokenizer=tabular_tokenizer, **dataset_config

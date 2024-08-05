@@ -8,13 +8,16 @@ from transformers import (
     TrainingArguments,
     Trainer,
     AutoModel,
+    RobertaConfig
 )
-import sys
-import os
-
 from model.tpberta_modeling import *
 
-from transformers import RobertaConfig
+import sys
+import os
+import numpy as np
+
+from data.utils import get_cutoffs
+
 
 class TabularEncoder(nn.Module):
     """ Encodes tabular data."""
@@ -39,6 +42,7 @@ class TabularEncoder(nn.Module):
                 param.requires_grad = True
 
     def forward(self, input_ids, input_scales, token_type_ids, position_ids, features_cls_mask):
+        
         embedding_output = self.model.tpberta.embeddings(input_ids=input_ids, input_scales=input_scales, \
                           token_type_ids=token_type_ids, position_ids=position_ids)
 
@@ -47,13 +51,6 @@ class TabularEncoder(nn.Module):
             query_mask=features_cls_mask,
             input_ids=input_ids,
         )
-
-        if torch.any(torch.isnan(feature_chunk)):
-            # print("Emb:", embedding_output)
-            print("Emb qk NAs:", torch.any(torch.isnan(embedding_output[0])))
-            print("Emb v NAs:", torch.any(torch.isnan(embedding_output[1])))
-            # print("W_q:", self.model.tpberta.intra_attention.W_q.weight)
-
         return feature_chunk
 
 class TabularMapper(nn.Module):
@@ -349,6 +346,7 @@ class Model(nn.Module):
             self.tabular_encoder = TabularEncoder(self.tabular_base_checkpoint, freeze_tabular=self.freeze_tabular)
             self.tabular_dim = self.tabular_encoder.config.hidden_size
             self.tabular_mapper = TabularMapper(self.tabular_dim, self.hidden_size)
+            self.chunk_length = 500
 
     def _initialize_embeddings(self):
         self.pelookup = nn.parameter.Parameter(
@@ -398,6 +396,42 @@ class Model(nn.Module):
         
         return sorted_matrix, sorted_times
 
+    def tabular_pooling(self, feature_embedding, k, pooling_type='max'):
+        # NK x D
+        n, d = feature_embedding.shape
+        feature_embedding = feature_embedding.reshape(-1,k,d)
+        pooled_ind = np.array([i for i in range(0,n,k)])
+        if pooling_type == 'max':
+            pooled = feature_embedding.max(dim=1).values # n x d
+        elif pooling_type == 'sum':
+            pooled = feature_embedding.sum(dim=1) # n x d
+        else:
+            raise ValueError
+        assert pooled.shape == (n//k, d)
+        return pooled, pooled_ind
+    
+    def temporal_pooling(self, feature_embedding, time_elapsed, pooling_type='max'):
+        # get unique times
+        unique_times = torch.unique(time_elapsed)
+        # for each unique time, pool features with the time
+        complete_pooled = []
+        pooled_ind = []
+        for i in range(unique_times.shape[0]):
+            time_ind = np.where(time_elapsed == unique_times[i])[0]
+            pooled_ind.append(time_ind[0])
+            time_subset = feature_embedding[time_ind] # M x D
+            if pooling_type == 'max':
+                time_pooled = time_subset.max(dim=0, keepdim=True).values
+            elif pooling_type == 'sum':
+                time_pooled = time_subset.sum(dim=0, keepdim=True).values # 1 x D
+            else:
+                raise ValueError
+            complete_pooled.append(time_pooled)
+        temporal_pooled = torch.cat(complete_pooled, dim=0)
+
+        return temporal_pooled, np.array(pooled_ind)
+
+
     def forward(
         self,
         input_ids,
@@ -406,6 +440,7 @@ class Model(nn.Module):
         category_ids,
         cutoffs,
         percent_elapsed,
+        hours_elapsed,
         note_end_chunk_ids=None,
         tabular_data=None,
         token_type_ids=None,
@@ -457,35 +492,43 @@ class Model(nn.Module):
         if self.use_tabular and tabular_data:
             if len(tabular_data['input_ids'].shape) > 2:
                 tabular_data = {k:v[0] for k,v in tabular_data.items()}
-            tabular_input_ids = tabular_data['input_ids'].to(self.device, dtype=torch.long)
-            tabular_input_scales = tabular_data['input_scales'].to(self.device, dtype=torch.float32)
-            features_cls_mask = tabular_data['features_cls_mask'].to(self.device, dtype=torch.long)
-            tabular_token_type_ids = tabular_data['token_type_ids'].to(self.device, dtype=torch.long)
-            tabular_position_ids = tabular_data['position_ids'].to(self.device, dtype=torch.long)
-            tabular_percent_elapsed = tabular_data['percent_elapsed'].to(self.device, dtype=torch.float16)
-            assert not torch.any(torch.isnan(tabular_input_ids)) and not torch.any(torch.isinf(tabular_input_ids))
-            assert not torch.any(torch.isnan(tabular_input_scales)) and not torch.any(torch.isinf(tabular_input_scales))
-            assert not torch.any(torch.isnan(features_cls_mask)) and not torch.any(torch.isinf(features_cls_mask))
-            assert not torch.any(torch.isnan(tabular_token_type_ids)) and not torch.any(torch.isinf(tabular_token_type_ids))
-            assert not torch.any(torch.isnan(tabular_position_ids)) and not torch.any(torch.isinf(tabular_position_ids)) 
-            assert not torch.any(torch.isnan(tabular_percent_elapsed)) and not torch.any(torch.isinf(tabular_percent_elapsed))
-            
-            tabular_output = self.tabular_encoder(tabular_input_ids, tabular_input_scales, tabular_token_type_ids, tabular_position_ids, features_cls_mask)
-            tabular_output = tabular_output[:, 0, :]
-            if torch.any(torch.isnan(tabular_output)):
-                torch.save(
-                {
-                    "model_state_dict": self.tabular_encoder.state_dict(),
-                },
-                'issue.pth',
-                )
-            assert not torch.any(torch.isnan(tabular_output))
-            tabular_output = self.tabular_mapper(tabular_output)
-            assert not torch.any(torch.isnan(tabular_output))
-            assert not torch.any(torch.isnan(sequence_output))
-            sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+            tabular_input_ids = tabular_data['input_ids']
+            tabular_input_scales = tabular_data['input_scales']
+            features_cls_mask = tabular_data['features_cls_mask']
+            tabular_token_type_ids = tabular_data['token_type_ids']
+            tabular_position_ids = tabular_data['position_ids']
+            tabular_percent_elapsed = tabular_data['percent_elapsed']
+            tabular_hours_elapsed = tabular_data['hours_elapsed']
+            complete_tabular_output = []
+            for i in range(0, tabular_input_ids.shape[0], self.chunk_length):
+                tabular_output = self.tabular_encoder(
+                    input_ids=tabular_input_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long), 
+                    input_scales=tabular_input_scales[i : i + self.chunk_length].to(self.device, dtype=torch.float32),
+                    token_type_ids=tabular_token_type_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long),
+                    position_ids=tabular_position_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long), 
+                    features_cls_mask=features_cls_mask[i : i + self.chunk_length].to(self.device, dtype=torch.long)
+                    )
+                complete_tabular_output.append(tabular_output)
+            tabular_output = torch.cat(complete_tabular_output, dim=0)
+            assert tabular_output.shape[0] == tabular_input_ids.shape[0]
 
-            assert not torch.any(torch.isnan(sequence_output))
+            tabular_output = tabular_output[:, 0, :]
+            tabular_output = self.tabular_mapper(tabular_output)
+            # pool tabular features
+            if self.pool_features != 'none':
+                if self.pool_features == 'temporal':
+                    tabular_output, pooled_ind = self.temporal_pooling(tabular_output, tabular_percent_elapsed, pooling_type='max')
+                else:    
+                    tabular_output, pooled_ind = self.tabular_pooling(tabular_output, len(self.k_list), pooling_type=self.pool_features)
+                tabular_percent_elapsed = tabular_percent_elapsed[pooled_ind]
+                tabular_hours_elapsed = tabular_hours_elapsed[pooled_ind]
+                
+            tabular_percent_elapsed = tabular_percent_elapsed.to(self.device, dtype=torch.float16)
+            tabular_hours_elapsed = tabular_hours_elapsed.to(self.device, dtype=torch.long)
+            tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
+            sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+            combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+            cutoffs = get_cutoffs(combined_hours, combined_cat)
         
         # if not baseline, add document autoregressor
         if not self.is_baseline:

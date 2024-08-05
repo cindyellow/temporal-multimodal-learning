@@ -46,6 +46,7 @@ class CustomDataset(Dataset):
         limit_ds=0,
         batch_size=None,
         use_tabular=False,
+        k_list=[4]
     ):
         self.notes_agg_df = notes_agg_df
         self.labs_agg_df = labs_agg_df
@@ -56,6 +57,7 @@ class CustomDataset(Dataset):
         self.setup = setup
         self.limit_ds = limit_ds
         self.use_tabular = use_tabular
+        self.k_list = k_list
         np.random.seed(1)
 
     def __len__(self):
@@ -148,6 +150,8 @@ class CustomDataset(Dataset):
         encoded_feature_names = [self.tabular_tokenizer.encode(l) for l in data.LABEL]
 
         N = len(encoded_feature_names)
+        # K = 2*len(self.k_list)
+        K = len(self.k_list)
 
         # prepare encoded pieces
         cls_token_id = self.tabular_tokenizer.cls_token_id
@@ -165,26 +169,35 @@ class CustomDataset(Dataset):
                 efn = efn[:ft_max_tok]
             else:
                 efn += ([pad_token_id] * (ft_max_tok - len(efn)))
-            num_fix_part.extend([cls_token_id] + efn + [data.BIN[i]])
-            num_token_types.extend([0] + [0] * len(efn) + [1]) # continous type (1)
-            num_feature_cls_mask.extend([1] + [0] * len(efn) + [0])
-            num_position_ids.extend([0] + [i for i in range(1, len(efn)+1)] + [0])
-            if use_num_multiply:
-                num_input_scales.extend([data.NORM_VAL[i]] * (1+ len(efn))) #TODO: why noot 2+?
-                # num_input_scales.append(data['NORM_VAL'][i].repeat(1 + len(efn), axis=1)) # scale for feature name toks and bin tok
-        num_fix_part = np.array(num_fix_part).reshape(N,-1)
+            # TODO: extend list for each of k bins
+            for k in self.k_list:
+                fbin_name = f'FBIN_{k}'
+                # wbin_name = f'WBIN_{k}'
+                num_fix_part.extend([cls_token_id] + efn + [data[fbin_name][i]])
+                # num_fix_part.extend([cls_token_id] + efn + [data[fbin_name][i]] + 
+                #                     [cls_token_id] + efn + [data[wbin_name][i]])
+                # for _ in range(2):
+                for _ in range(1):
+                    num_token_types.extend([0] + [0] * len(efn) + [1]) # continous type (1)
+                    num_feature_cls_mask.extend([1] + [0] * len(efn) + [0])
+                    num_position_ids.extend([0] + [i for i in range(1, len(efn)+1)] + [0])
+                    if use_num_multiply:
+                        num_input_scales.extend([data.NORM_VAL[i]] * (1+ len(efn))) #TODO: why noot 2+?
+                        # num_input_scales.append(data['NORM_VAL'][i].repeat(1 + len(efn), axis=1)) # scale for feature name toks and bin tok
+        num_fix_part = np.array(num_fix_part).reshape(N*K,-1)
         # num_fix_part[num_fix_part == mask_token_id] = data['BIN'].reshape(-1)
-        num_token_types = np.array(num_token_types).reshape(N,-1)
+        num_token_types = np.array(num_token_types).reshape(N*K,-1)
         num_num_token = num_token_types.shape[1]
-        num_position_ids = np.array(num_position_ids).reshape(N,-1)
-        num_feature_cls_mask = np.array(num_feature_cls_mask).reshape(N,-1)
+        num_position_ids = np.array(num_position_ids).reshape(N*K,-1)
+        num_feature_cls_mask = np.array(num_feature_cls_mask).reshape(N*K,-1)
         if not use_num_multiply:
             num_input_scales = np.ones_like(num_token_types, dtype=np.float32)
-            num_input_scales[num_token_types == 1] = data.NORM_VAL
+            num_input_scales[num_token_types == 1] = np.repeat(np.array(data.NORM_VAL), K)
+            assert num_input_scales.shape[0] == (N*K)
             # num_input_scales = num_input_scales.flatten()
             # num_token_types = num_token_types.flatten()
         else:
-            num_input_scales = np.array(num_input_scales).reshape(N,-1)
+            num_input_scales = np.array(num_input_scales).reshape(N*K,-1)
             # num_input_scales = np.concatenate(num_input_scales, axis=1)
         
 
@@ -193,13 +206,23 @@ class CustomDataset(Dataset):
             list(
                 itertools.chain.from_iterable(
                     [
-                        [data.HOURS_ELAPSED[i]] for i in range(N) # one per feature row
+                        [data.HOURS_ELAPSED[i]] * K 
+                        for i in range(N) # one per feature-bin strategy row
                     ]
                 )
             )
         )
 
-        percent_elapsed = np.array(data.PERCENT_ELAPSED)
+        percent_elapsed = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [data.PERCENT_ELAPSED[i]] * K
+                        for i in range(N) # one per feature-bin strategy row
+                    ]
+                )
+            )
+        ) 
         
         return {'input_ids': num_fix_part,
                 'input_scales': num_input_scales,
@@ -316,42 +339,42 @@ class CustomDataset(Dataset):
 
         if self.use_tabular:
             lab_data = self.encode_tabular(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id])
-            if self.setup == "latest":
-                encoded["tabular"] = {
-                    "input_ids": lab_data['input_ids'][-self.max_chunks :],
-                    "input_scales": lab_data['input_scales'][-self.max_chunks :],
-                    "features_cls_mask": lab_data['features_cls_mask'][-self.max_chunks :],
-                    "token_type_ids": lab_data['token_type_ids'][-self.max_chunks :],
-                    "position_ids": lab_data['position_ids'][-self.max_chunks :],
-                    "hours_elapsed": lab_data['hours_elapsed'][-self.max_chunks :],
-                    "percent_elapsed": lab_data['percent_elapsed'][-self.max_chunks :],
-                }
-            elif self.setup == "uniform":
-                raise NotImplementedError
-                indices_mask = self.filter_mask(np.array(seq_ids))
-                print(indices_mask)
-                input_ids = input_ids[indices_mask]
-                print(input_ids)
-                encoded["tabular"] = {
-                    "input_ids": lab_data['input_ids'][indices_mask],
-                    "input_scales": lab_data['input_scales'][indices_mask],
-                    "features_cls_mask": lab_data['features_cls_mask'][indices_mask],
-                    "token_type_ids": lab_data['token_type_ids'][indices_mask],
-                    "position_ids": lab_data['position_ids'][indices_mask],
-                    "hours_elapsed": lab_data['hours_elapsed'][indices_mask],
-                    "percent_elapsed": lab_data['percent_elapsed'][indices_mask],
-                }
+            # if self.setup == "latest":
+            #     encoded["tabular"] = {
+            #         "input_ids": lab_data['input_ids'][-self.max_chunks :],
+            #         "input_scales": lab_data['input_scales'][-self.max_chunks :],
+            #         "features_cls_mask": lab_data['features_cls_mask'][-self.max_chunks :],
+            #         "token_type_ids": lab_data['token_type_ids'][-self.max_chunks :],
+            #         "position_ids": lab_data['position_ids'][-self.max_chunks :],
+            #         "hours_elapsed": lab_data['hours_elapsed'][-self.max_chunks :],
+            #         "percent_elapsed": lab_data['percent_elapsed'][-self.max_chunks :],
+            #     }
+            # elif self.setup == "uniform":
+            #     raise NotImplementedError
+            #     indices_mask = self.filter_mask(np.array(seq_ids))
+            #     print(indices_mask)
+            #     input_ids = input_ids[indices_mask]
+            #     print(input_ids)
+            #     encoded["tabular"] = {
+            #         "input_ids": lab_data['input_ids'][indices_mask],
+            #         "input_scales": lab_data['input_scales'][indices_mask],
+            #         "features_cls_mask": lab_data['features_cls_mask'][indices_mask],
+            #         "token_type_ids": lab_data['token_type_ids'][indices_mask],
+            #         "position_ids": lab_data['position_ids'][indices_mask],
+            #         "hours_elapsed": lab_data['hours_elapsed'][indices_mask],
+            #         "percent_elapsed": lab_data['percent_elapsed'][indices_mask],
+            #     }
 
-            elif self.setup == "random":
-                encoded["tabular"] = {
-                    "input_ids": lab_data['input_ids'],
-                    "input_scales": lab_data['input_scales'],
-                    "features_cls_mask": lab_data['features_cls_mask'],
-                    "token_type_ids": lab_data['token_type_ids'],
-                    "position_ids": lab_data['position_ids'],
-                    "hours_elapsed": lab_data['hours_elapsed'],
-                    "percent_elapsed": lab_data['percent_elapsed'],
-                }
+            # elif self.setup == "random":
+            encoded["tabular"] = {
+                "input_ids": lab_data['input_ids'],
+                "input_scales": lab_data['input_scales'],
+                "features_cls_mask": lab_data['features_cls_mask'],
+                "token_type_ids": lab_data['token_type_ids'],
+                "position_ids": lab_data['position_ids'],
+                "hours_elapsed": lab_data['hours_elapsed'],
+                "percent_elapsed": lab_data['percent_elapsed'],
+            }
 
         encoded["notes"] = {
             "input_ids": input_ids,

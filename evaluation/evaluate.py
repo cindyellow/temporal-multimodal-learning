@@ -183,9 +183,9 @@ def evaluate(
             if use_tabular and len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
                 tabular_data = data["tabular"]
                 # update category ids and cutoffs
-                tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
-                combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
-                cutoffs = get_cutoffs(combined_hours, combined_cat)
+                # tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
+                # combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
+                # cutoffs = get_cutoffs(combined_hours, combined_cat)
             else:
                 tabular_data=None
             if setup == "random":
@@ -203,10 +203,11 @@ def evaluate(
                 # run through data in chunks of max_chunks
                 for i in range(0, input_ids.shape[0], model.max_chunks):
                     # only get the document embeddings
-                    if use_tabular:
-                        tabular_subset = select_tabular_window(tabular_data, 
-                                                            percent_elapsed[i : i + model.max_chunks], 
-                                                            model.max_tabular_features)
+                    # tabular_subset = None
+                    # if use_tabular:
+                    #     tabular_subset = select_tabular_window(tabular_data, 
+                    #                                         percent_elapsed[i : i + model.max_chunks], 
+                    #                                         model.max_tabular_features)
                     sequence_output = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
@@ -222,10 +223,14 @@ def evaluate(
                         ),
                         cutoffs=None,
                         percent_elapsed=percent_elapsed[i : i + model.max_chunks].to(
+                            device, dtype=torch.float16
+                        ),
+                        hours_elapsed=hours_elapsed[i : i + model.max_chunks].to(
                             device, dtype=torch.long
                         ),
                         is_evaluation=True,
-                        tabular_data=tabular_subset,
+                        # tabular_data=tabular_subset,
+                        tabular_data=tabular_data
                         # note_end_chunk_ids=note_end_chunk_ids,
                     )
                     complete_sequence_output.append(sequence_output)
@@ -264,7 +269,8 @@ def evaluate(
                     seq_ids=seq_ids.to(device, dtype=torch.long),
                     category_ids=category_ids.to(device, dtype=torch.long),
                     cutoffs=cutoffs,
-                    percent_elapsed=percent_elapsed.to(device, dtype=torch.long),
+                    percent_elapsed=percent_elapsed.to(device, dtype=torch.float16),
+                    hours_elapsed=hours_elapsed.to(device, dtype=torch.long),
                     # note_end_chunk_ids=note_end_chunk_ids,
                     tabular_data=tabular_data,
                 )

@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import ast
 import numpy as np
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler, LabelEncoder, QuantileTransformer
 
 
 class DataProcessor:
@@ -30,6 +30,7 @@ class DataProcessor:
         )
         self.config = config
         self.start_token_id = start_token_id
+        self.k_list = config["k_list"]
         self.filter_discharge_summary()
     
     def process_labels(self, label_path):
@@ -96,26 +97,47 @@ class DataProcessor:
 
         return charts_agg_df
 
-    def _bin_num(self, df, important_features, start_token_id):
+    def _bin_num(self, df, important_features, start_token_id, k_list):
 
-        new_df = pd.merge(df[['SUBJECT_ID', 'HADM_ID']], df.pivot(columns='LABEL', values='VALUENUM'), left_index=True, right_index=True)
+        df = pd.merge(df, df.pivot(columns='LABEL', values='VALUENUM'), left_index=True, right_index=True)
         
         # normalize features with train set
-        new_df = new_df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
-        normalizer = StandardScaler()
-        new_df.loc[new_df.SPLIT == 'TRAIN', important_features] = normalizer.fit_transform(new_df.loc[new_df.SPLIT == 'TRAIN', important_features])
-        new_df.loc[new_df.SPLIT == 'VALIDATION', important_features] = normalizer.transform(new_df.loc[new_df.SPLIT == 'VALIDATION', important_features])
-        new_df.loc[new_df.SPLIT == 'TEST', important_features] = normalizer.transform(new_df.loc[new_df.SPLIT == 'TEST', important_features])
+        df = df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
 
-        new_df['is_na'] = new_df[important_features].isnull().all(1)
-        new_df = new_df[new_df['is_na'] == False]
-        bin_names = []
-        for ft in important_features:
-            new_df[f'{ft}_BIN'] = pd.qcut(new_df[ft], q=[0, .25, .5, .75, 1.], labels=[1,2,3,4])
-            bin_names.append(f'{ft}_BIN')
+        normalizer = QuantileTransformer(
+                output_distribution='normal',
+                n_quantiles=max(min(df[df.SPLIT == 'TRAIN'].shape[0] // 30, 1000), 10),
+                subsample=None,
+                random_state=24,
+            )
+        df.loc[df.SPLIT == 'TRAIN', important_features] = normalizer.fit_transform(df.loc[df.SPLIT == 'TRAIN', important_features])
+        df.loc[df.SPLIT == 'VALIDATION', important_features] = normalizer.transform(df.loc[df.SPLIT == 'VALIDATION', important_features])
+        df.loc[df.SPLIT == 'TEST', important_features] = normalizer.transform(df.loc[df.SPLIT == 'TEST', important_features])
+
+        df['is_na'] = df[important_features].isnull().all(1)
+        df = df[df['is_na'] == False]
+
+        fbin_names, wbin_names = {}, {}
+        for k in k_list:
+            fbin_names[k] = []
+            wbin_names[k] = []
+            for ft in important_features:
+                df.loc[df.SPLIT == 'TRAIN', f'{ft}_FBIN_{k}'], fbins = pd.qcut(df.loc[df.SPLIT == 'TRAIN', ft], q=k, labels=False, retbins=True, duplicates='drop')
+                df.loc[df.SPLIT == 'VALIDATION', f'{ft}_FBIN_{k}'] = pd.cut(df.loc[df.SPLIT == 'VALIDATION', ft], bins=fbins, labels=False)
+                df.loc[df.SPLIT == 'TEST', f'{ft}_FBIN_{k}'] = pd.cut(df.loc[df.SPLIT == 'TEST', ft], bins=fbins, labels=False)
+
+                df.loc[df.SPLIT == 'TRAIN', f'{ft}_WBIN_{k}'], wbins = pd.cut(df.loc[df.SPLIT == 'TRAIN',ft], bins=k, labels=False, retbins=True, duplicates='drop')
+                df.loc[df.SPLIT == 'VALIDATION', f'{ft}_WBIN_{k}'] = pd.cut(df.loc[df.SPLIT == 'VALIDATION', ft], bins=wbins, labels=False)
+                df.loc[df.SPLIT == 'TEST', f'{ft}_WBIN_{k}'] = pd.cut(df.loc[df.SPLIT == 'TEST', ft], bins=wbins, labels=False)
+                
+                df.loc[:, f'{ft}_FBIN_{k}'] += 1
+                df.loc[:, f'{ft}_WBIN_{k}'] += 1
+                fbin_names[k].append(f'{ft}_FBIN_{k}')
+                wbin_names[k].append(f'{ft}_WBIN_{k}')
         
-        new_df['BIN'] = new_df[bin_names].values.tolist()
-        new_df['NORM_VAL'] = new_df[important_features].values.tolist()
+            df[f'FBIN_{k}'] = df[fbin_names[k]].values.tolist()
+            df[f'WBIN_{k}'] = df[wbin_names[k]].values.tolist()
+        df['NORM_VAL'] = df[important_features].values.tolist()
 
         # Function to remove NAs and extract the single value
         def clean_bin(bin_list):
@@ -124,13 +146,16 @@ class DataProcessor:
             # Return the single value, assuming there's exactly one value left
             return cleaned_list[0] if cleaned_list else np.nan
         
-        new_df['BIN'] = new_df['BIN'].apply(clean_bin)
-        new_df['BIN'] += (start_token_id - 1)
-        new_df['NORM_VAL'] = new_df['NORM_VAL'].apply(clean_bin)
-
-        df = pd.merge(df, new_df[['NORM_VAL', 'BIN']], left_index=True, right_index=True)
+        all_bin_names = []
+        for k in k_list:
+            df[f'FBIN_{k}'] = df[f'FBIN_{k}'].apply(clean_bin)
+            df[f'FBIN_{k}'] += (start_token_id - 1)
+            df[f'WBIN_{k}'] = df[f'WBIN_{k}'].apply(clean_bin)
+            df[f'WBIN_{k}'] += (start_token_id - 1)
+            all_bin_names.extend([f'FBIN_{k}', f'WBIN_{k}'])
+        df['NORM_VAL'] = df['NORM_VAL'].apply(clean_bin)
         
-        return df
+        return df, all_bin_names
 
     
     def aggregate_labs(self):
@@ -149,27 +174,27 @@ class DataProcessor:
         D_LABITEMS = pd.read_csv(os.path.join(self.dataset_path, "D_LABITEMS.csv"))
         self.labs_df = self.labs_df.merge(D_LABITEMS.loc[:, ['ITEMID', 'LABEL']], on='ITEMID', how='inner').loc[:, ['SUBJECT_ID', 'HADM_ID', 'LABEL', 'CHARTTIME', 'VALUENUM', 'VALUEUOM']]
 
-        # TODO: filter by top 10 labels
         with open(os.path.join(self.dataset_path, "lab_ft-imp.txt"), 'r') as f:
             imp_labs = f.read().splitlines()
         f.close()
         self.labs_df = self.labs_df[self.labs_df['LABEL'].isin(imp_labs)]
 
-        # TODO: bin all numerical variables
-        self.labs_df = self._bin_num(self.labs_df, imp_labs, self.start_token_id)
+        self.labs_df, all_bin_names = self._bin_num(self.labs_df, imp_labs, self.start_token_id, self.k_list)
 
         # sort for chartdate and time
+        agg_cols = ["LABEL", "CHARTTIME", "NORM_VAL"] + all_bin_names
         labs_agg_df = (
             self.labs_df.sort_values(
                 by=["CHARTTIME"],
                 na_position="last",
             )
             .groupby(["SUBJECT_ID", "HADM_ID"])
-            .agg({"LABEL": list, "CHARTTIME": list, "NORM_VAL": list, "VALUEUOM": list, "BIN": list})
+            .agg({col:list for col in agg_cols})
         ).reset_index()
 
         # merge with label to get splits
-        labs_agg_df = labs_agg_df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
+        labs_agg_df = labs_agg_df.merge(self.labels_df, on=["HADM_ID"], how="left")
+        labs_agg_df = labs_agg_df[labs_agg_df.SPLIT.isna() != True]
 
         return labs_agg_df
     
