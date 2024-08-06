@@ -53,9 +53,11 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--reduce_computation", type=boolean_string, default=False, help="  ")
     parser.add_argument("-y", "--apply_temporal_loss", type=boolean_string, default=False, help="  ")
     parser.add_argument("-g", "--save_model", type=boolean_string, default=False, help="  ")
+    parser.add_argument("-ch", "--load_from_checkpoint", type=boolean_string, default=False, help="  ")
     parser.add_argument("-o", "--lr", type=float, default=5e-5, help="  ")
     parser.add_argument("-j", "--random_sample", type=boolean_string, default=True, help="  ")
     parser.add_argument("-mm", "--use_tabular", type=boolean_string, default=False, help="  ")
+    parser.add_argument("-st", "--subset_tabular", type=boolean_string, default=False, help="  ")
     parser.add_argument("-nt", "--num_tabular_features", type=int, default=10, help="  ")
     parser.add_argument("-ft", "--freeze_tabular", type=boolean_string, default=True, help="  ")
     parser.add_argument('-kl','--k_list', nargs='+', type=int, default=[4], help="List of bin numbers to try")
@@ -104,7 +106,7 @@ if __name__ == "__main__":
         "patience_threshold": args_config["patience_threshold"],
         "max_epochs": args_config["max_epochs"],
         "save_model": args_config["save_model"],
-        "load_from_checkpoint": False,
+        "load_from_checkpoint": args_config["load_from_checkpoint"],
         # "checkpoint_name": "Run_all_notes_last_second_transf",
         "checkpoint_name": args_config["run_name"],
         "evaluate_temporal": args_config["evaluate_temporal"],
@@ -121,6 +123,7 @@ if __name__ == "__main__":
         "apply_temporal_loss": args_config["apply_temporal_loss"],
         "random_sample": args_config["random_sample"],
         "use_tabular": args_config["use_tabular"],
+        "subset_tabular": args_config["subset_tabular"],
         "tabular_base_checkpoint": "model/tpberta-single/tp-bin",
         "max_tabular_features": args_config["num_tabular_features"],
         "freeze_tabular": args_config["freeze_tabular"],
