@@ -98,6 +98,7 @@ if __name__ == "__main__":
         "use_document_embeddings": False,
         "use_reverse_document_embeddings": False,
         "use_category_embeddings": True,
+        "use_modality_embeddings": True,
         "num_labels": 50,
         "use_all_tokens": args_config["use_all_tokens"],
         "num_heads_labattn": args_config["num_heads_labattn"],

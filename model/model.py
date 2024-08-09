@@ -377,6 +377,11 @@ class Model(nn.Module):
             torch.normal(0, 0.1, size=(15, 1, self.hidden_size), dtype=torch.float),
             requires_grad=True,
         )
+
+        self.melookup = nn.parameter.Parameter(
+            torch.normal(0, 0.1, size=(2, 1, self.hidden_size), dtype=torch.float),
+            requires_grad=True,
+        )
     
     def _squeeze_data(self, tabular_data):
         return {k:v[0] for k,v in tabular_data.items()}
@@ -474,6 +479,12 @@ class Model(nn.Module):
             sequence_output += torch.index_select(
                 self.celookup, dim=0, index=category_ids
             )
+        if self.use_modality_embeddings:
+            modality_ids = torch.zeros_like(category_ids, dtype=torch.long)
+            sequence_output += torch.index_select(
+                self.melookup, dim=0, index=modality_ids
+            )
+
         if self.use_all_tokens:
             # before: sequence_output shape [batchsize, seqlen, hiddensize] = [# chunks, 512, hidden size]
             # after: sequence_output shape [#chunks*512, 1, hidden size]
@@ -522,9 +533,16 @@ class Model(nn.Module):
                     tabular_output, pooled_ind = self.tabular_pooling(tabular_output, len(self.k_list), pooling_type=self.pool_features)
                 tabular_percent_elapsed = tabular_percent_elapsed[pooled_ind]
                 tabular_hours_elapsed = tabular_hours_elapsed[pooled_ind]
-                
+            
             tabular_percent_elapsed = tabular_percent_elapsed.to(self.device, dtype=torch.float16)
             tabular_hours_elapsed = tabular_hours_elapsed.to(self.device, dtype=torch.long)
+            
+            if self.use_modality_embeddings:
+                modality_ids = torch.ones_like(tabular_percent_elapsed, dtype=torch.long)
+                tabular_output += torch.index_select(
+                    self.melookup, dim=0, index=modality_ids
+                ).squeeze(1)                
+            
             tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
             sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
             combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
