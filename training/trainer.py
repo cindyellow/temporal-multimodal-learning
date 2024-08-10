@@ -226,7 +226,7 @@ class Trainer:
                     enable_flash=False
                 ) as disable:
                     # with autocast():
-                    scores, doc_embeddings, aux_predictions = self.model(
+                    scores, doc_embeddings, aux_predictions, tabular_scores = self.model(
                         input_ids=input_ids.to(self.device, dtype=torch.long),
                         attention_mask=attention_mask.to(self.device, dtype=torch.long),
                         seq_ids=seq_ids.to(self.device, dtype=torch.long),
