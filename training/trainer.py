@@ -214,9 +214,9 @@ class Trainer:
                         tabular_data = self.random_sampling(data["tabular"], self.max_tabular_features)
                         tabular_hours_elapsed = tabular_data['hours_elapsed']
                     # update cutoffs
-                    tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
-                    combined_cat, combined_hours = self.model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                    cutoffs = get_cutoffs(combined_hours, combined_cat)
+                    # tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
+                    # combined_cat, combined_hours = self.model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+                    # cutoffs = get_cutoffs(combined_hours, combined_cat)
                 else:
                     tabular_data = None
 
@@ -310,8 +310,15 @@ class Trainer:
                         )
                     else:
                         # train with loss on last temporal point only
+                        tabular_weight = 0.3
+                        note_weight = 0.7
+                        if tabular_scores is not None:
+                            weighted_score = (tabular_weight * tabular_scores[-1, :][None, :]) + (note_weight * scores[-1, :][None, :])
+                        else:
+                            weighted_score = scores[-1, :][None, :]
                         loss_cls = F.binary_cross_entropy_with_logits(
-                            scores[-1, :][None, :],
+                            # scores[-1, :][None, :],
+                            weighted_score,
                             labels.to(self.device, dtype=self.dtype)[None, :],
                         )
                     # TODO: delete de 1-weights

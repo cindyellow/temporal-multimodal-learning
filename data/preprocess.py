@@ -59,7 +59,7 @@ class DataProcessor:
         notes_agg_df = self.add_temporal_information(notes_agg_df, notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
         # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
         notes_agg_df = self.prepare_setup(notes_agg_df)
-        labs_agg_df = self.aggregate_labs()
+        labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
         labs_agg_df = self.add_temporal_information(labs_agg_df, notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
         return notes_agg_df, categories_mapping, labs_agg_df
 
@@ -157,8 +157,10 @@ class DataProcessor:
         
         return df, all_bin_names
 
-    
-    def aggregate_labs(self):
+    # def _filter_charttime(self, s):
+    #     return [s.CHARTTIME[i] for i in range(len(s.CHARTTIME)) if s.CHARTTIME[i] < s.DISCHARGE_TIME]
+
+    def aggregate_labs(self, adm_disch_time):
         # filter NA
         self.labs_df = self.labs_df[self.labs_df.HADM_ID.isna() == False]
         self.labs_df["HADM_ID"] = self.labs_df["HADM_ID"].apply(int)
@@ -169,6 +171,9 @@ class DataProcessor:
         # drop NAs in charttime
         self.labs_df = self.labs_df[self.labs_df.CHARTTIME.isna() == False]
         self.labs_df["CHARTTIME"] = pd.to_datetime(self.labs_df.CHARTTIME)
+
+        self.labs_df = self.labs_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
+        self.labs_df = self.labs_df[self.labs_df["CHARTTIME"] <= self.labs_df["DISCHARGE_TIME"]]
 
         # merge with dict to get label name
         D_LABITEMS = pd.read_csv(os.path.join(self.dataset_path, "D_LABITEMS.csv"))
@@ -191,6 +196,13 @@ class DataProcessor:
             .groupby(["SUBJECT_ID", "HADM_ID"])
             .agg({col:list for col in agg_cols})
         ).reset_index()
+
+        labs_agg_df = labs_agg_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
+
+        # labs_agg_df["CHARTTIME"] = labs_agg_df[["CHARTTIME", "DISCHARGE_TIME"]].apply(
+        #     lambda x: [x.CHARTTIME[i] for i in range(len(x.CHARTTIME)) if x.CHARTTIME[i] <= x.DISCHARGE_TIME],
+        #     axis=1,
+        # )
 
         # merge with label to get splits
         labs_agg_df = labs_agg_df.merge(self.labels_df, on=["HADM_ID"], how="left")
@@ -287,15 +299,12 @@ class DataProcessor:
     def add_temporal_information(self, agg_df, adm_disch_time):
         """Add time information."""
         # Add temporal information
-        if ("ADMISSION_TIME" not in agg_df.columns) and ("DISCHARGE_TIME" not in agg_df.columns):
-            agg_df = agg_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
+        # if ("ADMISSION_TIME" not in agg_df.columns) and ("DISCHARGE_TIME" not in agg_df.columns):
+        #     agg_df = agg_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
 
         if agg_df.empty:
             return agg_df
         
-        agg_df["ADMISSION_DATETIME"] = agg_df["CHARTTIME"].apply(
-            lambda s: s[0]
-        )
         agg_df["TIME_ELAPSED"] = agg_df[["CHARTTIME", "ADMISSION_TIME"]].apply(
             self._calculate_time_elapsed,
             axis=1
