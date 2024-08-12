@@ -347,7 +347,7 @@ class Model(nn.Module):
             self.tabular_dim = self.tabular_encoder.config.hidden_size
             self.tabular_mapper = TabularMapper(self.tabular_dim, self.hidden_size)
             self.chunk_length = 500
-            if self.late_fuse != "none":
+            if self.use_tabular_attn:
                 self.tabular_regressor = HierARDocumentTransformer(
                     self.hidden_size, self.num_layers, self.num_attention_heads
                 )
@@ -546,7 +546,12 @@ class Model(nn.Module):
                 tabular_output += torch.index_select(
                     self.melookup, dim=0, index=modality_ids
                 ).squeeze(1)  
-
+            
+            if self.use_tabular_attn:
+                tabular_output = self.tabular_regressor(
+                                            tabular_output.view(-1, 1, self.hidden_size)
+                                        )  
+                
             if self.late_fuse == "none":              
                 tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
                 sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
@@ -574,11 +579,10 @@ class Model(nn.Module):
 
         # NOTE: fuse past embeddings with tabular
         tabular_scores = None
+        
         if self.use_tabular and tabular_data:
             tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1  
-            tabular_output = self.tabular_regressor(
-                                        tabular_output.view(-1, 1, self.hidden_size)
-                                    )  
+            
             if self.late_fuse == "embeddings":
                 sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
                 combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)

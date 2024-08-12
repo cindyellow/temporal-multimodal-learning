@@ -63,6 +63,8 @@ if __name__ == "__main__":
     parser.add_argument('-kl','--k_list', nargs='+', type=int, default=[4], help="List of bin numbers to try")
     parser.add_argument('-pf','--pool_features', type=str, default="none", help="options: max, sum, none")
     parser.add_argument('-lf','--late_fuse', type=str, default="none", help="options: embeddings, predictions, none")
+    parser.add_argument('-ta','--use_tabular_attn', type=boolean_string, default=False, help="  ")
+
 
     args = parser.parse_args()
     args_config = vars(args)
@@ -132,6 +134,7 @@ if __name__ == "__main__":
         "k_list": args_config["k_list"],
         "pool_features": args_config["pool_features"],
         "late_fuse": args_config["late_fuse"],
+        "use_tabular_attn": args_config["use_tabular_attn"]
 
     }
 
