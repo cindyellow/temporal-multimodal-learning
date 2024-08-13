@@ -351,6 +351,9 @@ class Model(nn.Module):
                 self.tabular_regressor = HierARDocumentTransformer(
                     self.hidden_size, self.num_layers, self.num_attention_heads
                 )
+            self.crossmodal_regressor = HierARDocumentTransformer(
+                    self.hidden_size, self.num_layers, self.num_attention_heads
+                )
 
     def _initialize_embeddings(self):
         self.pelookup = nn.parameter.Parameter(
@@ -552,11 +555,6 @@ class Model(nn.Module):
                                             tabular_output.view(-1, 1, self.hidden_size)
                                         )  
                 
-            if self.late_fuse == "none":              
-                tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
-                sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
-                combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                cutoffs = get_cutoffs(combined_hours, combined_cat)
         
         # if not baseline, add document autoregressor
         if not self.is_baseline:
@@ -565,6 +563,17 @@ class Model(nn.Module):
                 sequence_output.view(-1, 1, self.hidden_size)
             )
             assert not torch.any(torch.isnan(sequence_output))
+        
+        # combine after single-modal attn
+        if self.use_tabular and self.late_fuse == "none":              
+            tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
+            sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+            combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+            cutoffs = get_cutoffs(combined_hours, combined_cat)
+            sequence_output = self.crossmodal_regressor(
+                sequence_output.view(-1, 1, self.hidden_size)
+            )
+
         # make aux predictions
         if self.aux_task in ("next_document_embedding", "last_document_embedding"):
             if self.apply_transformation:
