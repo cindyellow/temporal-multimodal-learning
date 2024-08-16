@@ -57,6 +57,7 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--lr", type=float, default=5e-5, help="  ")
     parser.add_argument("-j", "--random_sample", type=boolean_string, default=True, help="  ")
     parser.add_argument("-mm", "--use_tabular", type=boolean_string, default=False, help="  ")
+    parser.add_argument("-tt", "--textualize", type=boolean_string, default=False, help="  ")
     parser.add_argument("-st", "--subset_tabular", type=boolean_string, default=False, help="  ")
     parser.add_argument("-nt", "--num_tabular_features", type=int, default=10, help="  ")
     parser.add_argument("-ft", "--freeze_tabular", type=boolean_string, default=True, help="  ")
@@ -85,7 +86,7 @@ if __name__ == "__main__":
     config = {
         #    "run_name": "Run_test_TLWAN"
         "run_name": args_config["run_name"],
-        "project_path": "/vol/bitbucket/ch2223/temporal-multimodal-learning",
+        "project_path": "/rds/general/user/ch2223/home/temporal-multimodal-learning",
         # pminervini/RoBERTa-base-PM-M3-Voc-hf
         # "base_checkpoint": os.path.join("", "RoBERTa-base-PM-M3-Voc-hf"),
         "base_checkpoint": "pminervini/RoBERTa-base-PM-M3-Voc-hf",
@@ -101,7 +102,7 @@ if __name__ == "__main__":
         "use_document_embeddings": False,
         "use_reverse_document_embeddings": False,
         "use_category_embeddings": True,
-        "use_modality_embeddings": True,
+        "use_modality_embeddings": False,
         "num_labels": 50,
         "use_all_tokens": args_config["use_all_tokens"],
         "num_heads_labattn": args_config["num_heads_labattn"],
@@ -127,6 +128,7 @@ if __name__ == "__main__":
         "apply_temporal_loss": args_config["apply_temporal_loss"],
         "random_sample": args_config["random_sample"],
         "use_tabular": args_config["use_tabular"],
+        "textualize": args_config["textualize"],
         "subset_tabular": args_config["subset_tabular"],
         "tabular_base_checkpoint": "model/tpberta-single/tp-bin",
         "max_tabular_features": args_config["num_tabular_features"],
@@ -148,7 +150,7 @@ if __name__ == "__main__":
     tabular_tokenizer = get_tabular_tokenizer(config["tabular_base_checkpoint"])
 
     # process and aggregate raw data
-    dp = DataProcessor(dataset_path="/vol/bitbucket/ch2223/temp-mm/data/mimiciii", 
+    dp = DataProcessor(dataset_path="/rds/general/user/ch2223/home/temp-mm/data/mimiciii", 
                        config=config, 
                        start_token_id=(tabular_tokenizer.mask_token_id + 1))
     notes_agg_df, categories_mapping, labs_agg_df = dp.aggregate_data()
@@ -159,6 +161,7 @@ if __name__ == "__main__":
         "setup": config["setup"],
         "limit_ds": config["limit_ds"],
         "use_tabular": config["use_tabular"],
+        "textualize": config["textualize"],
         "k_list": config["k_list"]
     }
     training_set = get_dataset(

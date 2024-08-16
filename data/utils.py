@@ -3,7 +3,7 @@ import torch
 import transformers
 
 
-def get_dataset(notes_agg_df, labs_agg_df, split, tokenizer, tabular_tokenizer, max_chunks, setup, limit_ds=0, use_tabular=False, k_list=[4]):
+def get_dataset(notes_agg_df, labs_agg_df, split, tokenizer, tabular_tokenizer, max_chunks, setup, limit_ds=0, use_tabular=False, textualize=False, k_list=[4]):
     return CustomDataset(
         notes_agg_df[notes_agg_df.SPLIT == split],
         labs_agg_df[labs_agg_df.SPLIT == split],
@@ -13,6 +13,7 @@ def get_dataset(notes_agg_df, labs_agg_df, split, tokenizer, tabular_tokenizer, 
         setup=setup,
         limit_ds=limit_ds,
         use_tabular=use_tabular,
+        textualize=textualize,
         k_list=k_list
     )
 

@@ -56,11 +56,11 @@ class DataProcessor:
         """Preprocess data and aggregate."""
         notes_agg_df = self.aggregate_hadm_id()
         notes_agg_df, categories_mapping = self.add_category_information(notes_agg_df)
-        notes_agg_df = self.add_temporal_information(notes_agg_df, notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
+        notes_agg_df = self.add_temporal_information(notes_agg_df)
         # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
         notes_agg_df = self.prepare_setup(notes_agg_df)
         labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
-        labs_agg_df = self.add_temporal_information(labs_agg_df, notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
+        labs_agg_df = self.add_temporal_information(labs_agg_df)
         return notes_agg_df, categories_mapping, labs_agg_df
 
     def prepare_setup(self, notes_agg_df):
@@ -103,6 +103,10 @@ class DataProcessor:
         
         # normalize features with train set
         df = df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
+        df['is_na'] = df[important_features].isnull().all(1)
+        df = df[df['is_na'] == False]
+
+        df['ORIG_VAL'] = df[important_features].values.tolist()
 
         normalizer = QuantileTransformer(
                 output_distribution='normal',
@@ -113,10 +117,7 @@ class DataProcessor:
         df.loc[df.SPLIT == 'TRAIN', important_features] = normalizer.fit_transform(df.loc[df.SPLIT == 'TRAIN', important_features])
         df.loc[df.SPLIT == 'VALIDATION', important_features] = normalizer.transform(df.loc[df.SPLIT == 'VALIDATION', important_features])
         df.loc[df.SPLIT == 'TEST', important_features] = normalizer.transform(df.loc[df.SPLIT == 'TEST', important_features])
-
-        df['is_na'] = df[important_features].isnull().all(1)
-        df = df[df['is_na'] == False]
-
+       
         fbin_names, wbin_names = {}, {}
         for k in k_list:
             fbin_names[k] = []
@@ -154,6 +155,7 @@ class DataProcessor:
             df[f'WBIN_{k}'] += (start_token_id - 1)
             all_bin_names.extend([f'FBIN_{k}', f'WBIN_{k}'])
         df['NORM_VAL'] = df['NORM_VAL'].apply(clean_bin)
+        df['ORIG_VAL'] = df['ORIG_VAL'].apply(clean_bin)
         
         return df, all_bin_names
 
@@ -185,9 +187,11 @@ class DataProcessor:
         self.labs_df = self.labs_df[self.labs_df['LABEL'].isin(imp_labs)]
 
         self.labs_df, all_bin_names = self._bin_num(self.labs_df, imp_labs, self.start_token_id, self.k_list)
+        base_string = "{label}: {value}"
+        self.labs_df['TEXT'] = self.labs_df.apply(lambda r: base_string.format(label=r['LABEL'], value=r['ORIG_VAL']), axis=1)
 
         # sort for chartdate and time
-        agg_cols = ["LABEL", "CHARTTIME", "NORM_VAL"] + all_bin_names
+        agg_cols = ["LABEL", "CHARTTIME", "NORM_VAL", "TEXT", "ORIG_VAL"] + all_bin_names
         labs_agg_df = (
             self.labs_df.sort_values(
                 by=["CHARTTIME"],
@@ -296,7 +300,7 @@ class DataProcessor:
                 for i in range(len(s.CHARTTIME)) # NOTE: edited to include percent elapsed for discharge summary
             ] # TODO: ensure DS percent is always largest
     
-    def add_temporal_information(self, agg_df, adm_disch_time):
+    def add_temporal_information(self, agg_df):
         """Add time information."""
         # Add temporal information
         # if ("ADMISSION_TIME" not in agg_df.columns) and ("DISCHARGE_TIME" not in agg_df.columns):

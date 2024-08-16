@@ -381,7 +381,7 @@ class Model(nn.Module):
             requires_grad=True,
         )
         self.celookup = nn.parameter.Parameter(
-            torch.normal(0, 0.1, size=(15, 1, self.hidden_size), dtype=torch.float),
+            torch.normal(0, 0.1, size=(16, 1, self.hidden_size), dtype=torch.float),
             requires_grad=True,
         )
 
@@ -422,7 +422,7 @@ class Model(nn.Module):
         assert pooled.shape == (n//k, d)
         return pooled, pooled_ind
     
-    def temporal_pooling(self, feature_embedding, time_elapsed, pooling_type='max'):
+    def temporal_pooling(self, feature_embedding, time_elapsed, pooling_type='sum'):
         # get unique times
         unique_times = torch.unique(time_elapsed)
         # for each unique time, pool features with the time
@@ -565,7 +565,7 @@ class Model(nn.Module):
             assert not torch.any(torch.isnan(sequence_output))
         
         # combine after single-modal attn
-        if self.use_tabular and self.late_fuse == "none":              
+        if self.use_tabular and tabular_data and self.late_fuse == "none":              
             tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
             sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
             combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
