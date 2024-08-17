@@ -269,7 +269,7 @@ def evaluate(
                 # # note_end_chunk_ids = data["notes"]["note_end_chunk_ids"]
                 # cutoffs = data["notes"]["cutoffs"]
 
-                scores, _, aux_predictions = model(
+                scores, _, aux_predictions, _ = model(
                     input_ids=input_ids.to(device, dtype=torch.long),
                     attention_mask=attention_mask.to(device, dtype=torch.long),
                     seq_ids=seq_ids.to(device, dtype=torch.long),
