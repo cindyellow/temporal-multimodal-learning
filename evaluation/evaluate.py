@@ -184,9 +184,8 @@ def evaluate(
             hours_elapsed = data["notes"]["hours_elapsed"][0]
             cutoffs = data["notes"]["cutoffs"]
 
-            if use_tabular and not textualize:
-                if len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
-                    tabular_data = data["tabular"]
+            if use_tabular and not textualize and len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
+                tabular_data = data["tabular"]
                 # update category ids and cutoffs
                 # tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
                 # combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])

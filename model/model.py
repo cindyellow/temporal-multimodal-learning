@@ -351,9 +351,9 @@ class Model(nn.Module):
                 self.tabular_regressor = HierARDocumentTransformer(
                     self.hidden_size, self.num_layers, self.num_attention_heads
                 )
-            self.crossmodal_regressor = HierARDocumentTransformer(
-                    self.hidden_size, self.num_layers, self.num_attention_heads
-                )
+            # self.crossmodal_regressor = HierARDocumentTransformer(
+            #         self.hidden_size, self.num_layers, self.num_attention_heads
+            #     )
 
     def _initialize_embeddings(self):
         self.pelookup = nn.parameter.Parameter(
@@ -422,7 +422,7 @@ class Model(nn.Module):
         assert pooled.shape == (n//k, d)
         return pooled, pooled_ind
     
-    def temporal_pooling(self, feature_embedding, time_elapsed, pooling_type='sum'):
+    def temporal_pooling(self, feature_embedding, time_elapsed, pooling_type='temporal-max'):
         # get unique times
         unique_times = torch.unique(time_elapsed)
         # for each unique time, pool features with the time
@@ -432,9 +432,9 @@ class Model(nn.Module):
             time_ind = np.where(time_elapsed == unique_times[i])[0]
             pooled_ind.append(time_ind[0])
             time_subset = feature_embedding[time_ind] # M x D
-            if pooling_type == 'max':
+            if pooling_type == 'temporal-max':
                 time_pooled = time_subset.max(dim=0, keepdim=True).values
-            elif pooling_type == 'sum':
+            elif pooling_type == 'temporal-sum':
                 time_pooled = time_subset.sum(dim=0, keepdim=True).values # 1 x D
             else:
                 raise ValueError
@@ -534,8 +534,8 @@ class Model(nn.Module):
             tabular_output = self.tabular_mapper(tabular_output)
             # pool tabular features
             if self.pool_features != 'none':
-                if self.pool_features == 'temporal':
-                    tabular_output, pooled_ind = self.temporal_pooling(tabular_output, tabular_percent_elapsed, pooling_type='max')
+                if self.pool_features in ("temporal-max", "temporal-sum"):
+                    tabular_output, pooled_ind = self.temporal_pooling(tabular_output, tabular_percent_elapsed, pooling_type=self.pool_features)
                 else:    
                     tabular_output, pooled_ind = self.tabular_pooling(tabular_output, len(self.k_list), pooling_type=self.pool_features)
                 tabular_percent_elapsed = tabular_percent_elapsed[pooled_ind]
@@ -555,7 +555,12 @@ class Model(nn.Module):
                                             tabular_output.view(-1, 1, self.hidden_size)
                                         )  
                 
-        
+            if self.late_fuse == "none":              
+                tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
+                sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+                combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+                cutoffs = get_cutoffs(combined_hours, combined_cat)
+
         # if not baseline, add document autoregressor
         if not self.is_baseline:
             # document regressor returns document embeddings and predicted categories
@@ -564,15 +569,15 @@ class Model(nn.Module):
             )
             assert not torch.any(torch.isnan(sequence_output))
         
-        # combine after single-modal attn
-        if self.use_tabular and tabular_data and self.late_fuse == "none":              
-            tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
-            sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
-            combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-            cutoffs = get_cutoffs(combined_hours, combined_cat)
-            sequence_output = self.crossmodal_regressor(
-                sequence_output.view(-1, 1, self.hidden_size)
-            )
+        # # combine after single-modal attn
+        # if self.use_tabular and tabular_data and self.late_fuse == "none":              
+        #     tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
+        #     sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+        #     combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+        #     cutoffs = get_cutoffs(combined_hours, combined_cat)
+        #     sequence_output = self.crossmodal_regressor(
+        #         sequence_output.view(-1, 1, self.hidden_size)
+        #     )
 
         # make aux predictions
         if self.aux_task in ("next_document_embedding", "last_document_embedding"):

@@ -210,7 +210,7 @@ class DataProcessor:
 
         # merge with label to get splits
         labs_agg_df = labs_agg_df.merge(self.labels_df, on=["HADM_ID"], how="left")
-        labs_agg_df = labs_agg_df[labs_agg_df.SPLIT.isna() != True]
+        labs_agg_df = labs_agg_df[labs_agg_df.SPLIT_50.isna() != True]
 
         return labs_agg_df
     
