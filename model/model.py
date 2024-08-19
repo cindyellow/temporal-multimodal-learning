@@ -275,6 +275,34 @@ class TemporalMultiHeadLabelAttentionClassifier(nn.Module):
         )
         return score
 
+class GatedFusion(nn.Module):
+    """ Multimodal gated fusion unit.
+    """
+    def __init__(
+        self,
+        num_features,
+        hidden_size,
+    ):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.num_features = num_features
+        self.linear1 = nn.Linear(2*self.hidden_size, self.hidden_size)
+        self.sigmoid = nn.Sigmoid()
+        self.linear2 = nn.Linear(self.hidden_size, self.hidden_size)
+        self.beta = nn.Parameter(torch.randn(self.num_features), requires_grad=True)
+    
+    def forward(self, E_n, E_t):
+        # concat the two embeddings
+        combined = torch.cat((E_n, E_t), dim=1)
+        combined = self.linear1(combined)
+        g = self.sigmoid(combined) # D x 1
+        H = self.linear2(g * E_t)
+        alpha = (torch.linalg.vector_norm(E_n, dim=1)/torch.linalg.vector_norm(H, dim=1)) * self.beta
+        alpha = torch.clamp(alpha, max=1).reshape(-1,1)
+        output = E_n + (alpha * H)
+        return output
+
+
 
 class Model(nn.Module):
     """Model for ICD-9 code temporal predictions.
@@ -351,6 +379,8 @@ class Model(nn.Module):
                 self.tabular_regressor = HierARDocumentTransformer(
                     self.hidden_size, self.num_layers, self.num_attention_heads
                 )
+            if self.late_fuse == "gate":
+                self.gate = GatedFusion(self.max_chunks, self.hidden_size)
             # self.crossmodal_regressor = HierARDocumentTransformer(
             #         self.hidden_size, self.num_layers, self.num_attention_heads
             #     )
@@ -442,6 +472,29 @@ class Model(nn.Module):
         temporal_pooled = torch.cat(complete_pooled, dim=0)
 
         return temporal_pooled, np.array(pooled_ind)
+
+    def window_pooling(self, feature_embedding, time_elapsed, windows, pooling_type='max'):
+        """Pool everything within each temporal window in windows.
+        """
+        complete_pooled = []
+        for i in range(windows.shape[0]):
+            curr_time = windows[i]
+            prev_time = windows[i-1] if i > 0 else 0
+            time_ind = np.where((time_elapsed <= curr_time) & (time_elapsed > prev_time))[0]
+            time_subset = feature_embedding[time_ind]
+            if time_subset.shape[0] == 0:
+                time_pooled = torch.zeros(1, feature_embedding.shape[1])
+                complete_pooled.append(time_pooled)
+                continue
+            if pooling_type == 'max':
+                time_pooled = time_subset.max(dim=0, keepdim=True).values
+            elif pooling_type == 'sum':
+                time_pooled = time_subset.sum(dim=0, keepdim=True).values # 1 x D
+            else:
+                raise ValueError
+            complete_pooled.append(time_pooled)
+        temporal_pooled = torch.cat(complete_pooled, dim=0)
+        return temporal_pooled
 
 
     def forward(
@@ -554,6 +607,13 @@ class Model(nn.Module):
                 tabular_output = self.tabular_regressor(
                                             tabular_output.view(-1, 1, self.hidden_size)
                                         )  
+            if self.late_fuse == "gate":
+                tabular_output = self.window_pooling(tabular_output, 
+                                                     tabular_percent_elapsed, 
+                                                     percent_elapsed, 
+                                                     pooling_type='max') # N x D
+                sequence_output = self.gate(sequence_output, tabular_output)
+                
                 
             if self.late_fuse == "none":              
                 tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    

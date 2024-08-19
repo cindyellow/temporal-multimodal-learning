@@ -108,12 +108,13 @@ class DataProcessor:
 
         df['ORIG_VAL'] = df[important_features].values.tolist()
 
-        normalizer = QuantileTransformer(
-                output_distribution='normal',
-                n_quantiles=max(min(df[df.SPLIT == 'TRAIN'].shape[0] // 30, 1000), 10),
-                subsample=None,
-                random_state=24,
-            )
+        # normalizer = QuantileTransformer(
+        #         output_distribution='normal',
+        #         n_quantiles=max(min(df[df.SPLIT == 'TRAIN'].shape[0] // 30, 1000), 10),
+        #         subsample=None,
+        #         random_state=24,
+        #     )
+        normalizer = StandardScaler()
         df.loc[df.SPLIT == 'TRAIN', important_features] = normalizer.fit_transform(df.loc[df.SPLIT == 'TRAIN', important_features])
         df.loc[df.SPLIT == 'VALIDATION', important_features] = normalizer.transform(df.loc[df.SPLIT == 'VALIDATION', important_features])
         df.loc[df.SPLIT == 'TEST', important_features] = normalizer.transform(df.loc[df.SPLIT == 'TEST', important_features])
