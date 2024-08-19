@@ -210,13 +210,12 @@ class Trainer:
                 if self.config["use_tabular"] and len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
                     tabular_data = data["tabular"]
                     tabular_hours_elapsed = tabular_data['hours_elapsed'][0]
-                    if self.setup == "random":
+                    if self.setup == "random" and self.subset_tabular:
                         tabular_data = self.random_sampling(data["tabular"], self.max_tabular_features)
-                        tabular_hours_elapsed = tabular_data['hours_elapsed']
-                    # update cutoffs
-                    tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
-                    combined_cat, combined_hours = self.model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                    cutoffs = get_cutoffs(combined_hours, combined_cat)
+                    # # update cutoffs
+                    # tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
+                    # combined_cat, combined_hours = self.model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+                    # cutoffs = get_cutoffs(combined_hours, combined_cat)
                 else:
                     tabular_data = None
 
@@ -233,6 +232,7 @@ class Trainer:
                         category_ids=category_ids.to(self.device, dtype=torch.long),
                         cutoffs=cutoffs,
                         percent_elapsed=percent_elapsed.to(self.device, dtype=torch.float16),
+                        hours_elapsed=hours_elapsed.to(self.device, dtype=torch.long),
                         # note_end_chunk_ids=note_end_chunk_ids,
                         tabular_data=tabular_data,
                     )
@@ -503,6 +503,7 @@ class Trainer:
             setup=self.config["setup"],
             reduce_computation=self.config["reduce_computation"],
             use_tabular=self.config["use_tabular"],
+            subset_tabular=self.config["subset_tabular"],
         )
         # print(validation_metrics_temp)
         train_metrics["loss"] = np.mean(train_loss["loss_total"])

@@ -30,6 +30,7 @@ class DataProcessor:
         )
         self.config = config
         self.start_token_id = start_token_id
+        self.k_list = config["k_list"]
         self.filter_discharge_summary()
     
     def process_labels(self, label_path):
@@ -55,11 +56,11 @@ class DataProcessor:
         """Preprocess data and aggregate."""
         notes_agg_df = self.aggregate_hadm_id()
         notes_agg_df, categories_mapping = self.add_category_information(notes_agg_df)
-        notes_agg_df = self.add_temporal_information(notes_agg_df, notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
+        notes_agg_df = self.add_temporal_information(notes_agg_df)
         # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
         notes_agg_df = self.prepare_setup(notes_agg_df)
-        labs_agg_df = self.aggregate_labs()
-        labs_agg_df = self.add_temporal_information(labs_agg_df, notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
+        labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
+        labs_agg_df = self.add_temporal_information(labs_agg_df)
         return notes_agg_df, categories_mapping, labs_agg_df
 
     def prepare_setup(self, notes_agg_df):
@@ -96,26 +97,43 @@ class DataProcessor:
 
         return charts_agg_df
 
-    def _bin_num(self, df, important_features, start_token_id):
+    def _bin_num(self, df, important_features, start_token_id, k_list):
 
-        new_df = pd.merge(df[['SUBJECT_ID', 'HADM_ID']], df.pivot(columns='LABEL', values='VALUENUM'), left_index=True, right_index=True)
+        df = pd.merge(df, df.pivot(columns='LABEL', values='VALUENUM'), left_index=True, right_index=True)
         
         # normalize features with train set
-        new_df = new_df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
-        normalizer = StandardScaler()
-        new_df.loc[new_df.SPLIT == 'TRAIN', important_features] = normalizer.fit_transform(new_df.loc[new_df.SPLIT == 'TRAIN', important_features])
-        new_df.loc[new_df.SPLIT == 'VALIDATION', important_features] = normalizer.transform(new_df.loc[new_df.SPLIT == 'VALIDATION', important_features])
-        new_df.loc[new_df.SPLIT == 'TEST', important_features] = normalizer.transform(new_df.loc[new_df.SPLIT == 'TEST', important_features])
+        df = df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
+        df['is_na'] = df[important_features].isnull().all(1)
+        df = df[df['is_na'] == False]
 
-        new_df['is_na'] = new_df[important_features].isnull().all(1)
-        new_df = new_df[new_df['is_na'] == False]
-        bin_names = []
-        for ft in important_features:
-            new_df[f'{ft}_BIN'] = pd.qcut(new_df[ft], q=[0, .25, .5, .75, 1.], labels=[1,2,3,4])
-            bin_names.append(f'{ft}_BIN')
+        df['ORIG_VAL'] = df[important_features].values.tolist()
+
+        normalizer = StandardScaler()
+        df.loc[df.SPLIT == 'TRAIN', important_features] = normalizer.fit_transform(df.loc[df.SPLIT == 'TRAIN', important_features])
+        df.loc[df.SPLIT == 'VALIDATION', important_features] = normalizer.transform(df.loc[df.SPLIT == 'VALIDATION', important_features])
+        df.loc[df.SPLIT == 'TEST', important_features] = normalizer.transform(df.loc[df.SPLIT == 'TEST', important_features])
+
+        fbin_names, wbin_names = {}, {}
+        for k in k_list:
+            fbin_names[k] = []
+            wbin_names[k] = []
+            for ft in important_features:
+                df.loc[df.SPLIT == 'TRAIN', f'{ft}_FBIN_{k}'], fbins = pd.qcut(df.loc[df.SPLIT == 'TRAIN', ft], q=k, labels=False, retbins=True, duplicates='drop')
+                df.loc[df.SPLIT == 'VALIDATION', f'{ft}_FBIN_{k}'] = pd.cut(df.loc[df.SPLIT == 'VALIDATION', ft], bins=fbins, labels=False)
+                df.loc[df.SPLIT == 'TEST', f'{ft}_FBIN_{k}'] = pd.cut(df.loc[df.SPLIT == 'TEST', ft], bins=fbins, labels=False)
+
+                df.loc[df.SPLIT == 'TRAIN', f'{ft}_WBIN_{k}'], wbins = pd.cut(df.loc[df.SPLIT == 'TRAIN',ft], bins=k, labels=False, retbins=True, duplicates='drop')
+                df.loc[df.SPLIT == 'VALIDATION', f'{ft}_WBIN_{k}'] = pd.cut(df.loc[df.SPLIT == 'VALIDATION', ft], bins=wbins, labels=False)
+                df.loc[df.SPLIT == 'TEST', f'{ft}_WBIN_{k}'] = pd.cut(df.loc[df.SPLIT == 'TEST', ft], bins=wbins, labels=False)
+                
+                df.loc[:, f'{ft}_FBIN_{k}'] += 1
+                df.loc[:, f'{ft}_WBIN_{k}'] += 1
+                fbin_names[k].append(f'{ft}_FBIN_{k}')
+                wbin_names[k].append(f'{ft}_WBIN_{k}')
         
-        new_df['BIN'] = new_df[bin_names].values.tolist()
-        new_df['NORM_VAL'] = new_df[important_features].values.tolist()
+            df[f'FBIN_{k}'] = df[fbin_names[k]].values.tolist()
+            df[f'WBIN_{k}'] = df[wbin_names[k]].values.tolist()
+        df['NORM_VAL'] = df[important_features].values.tolist()
 
         # Function to remove NAs and extract the single value
         def clean_bin(bin_list):
@@ -124,16 +142,21 @@ class DataProcessor:
             # Return the single value, assuming there's exactly one value left
             return cleaned_list[0] if cleaned_list else np.nan
         
-        new_df['BIN'] = new_df['BIN'].apply(clean_bin)
-        new_df['BIN'] += (start_token_id - 1)
-        new_df['NORM_VAL'] = new_df['NORM_VAL'].apply(clean_bin)
+        all_bin_names = []
+        for k in k_list:
+            df[f'FBIN_{k}'] = df[f'FBIN_{k}'].apply(clean_bin)
+            df[f'FBIN_{k}'] += (start_token_id - 1)
+            df[f'WBIN_{k}'] = df[f'WBIN_{k}'].apply(clean_bin)
+            df[f'WBIN_{k}'] += (start_token_id - 1)
+            all_bin_names.extend([f'FBIN_{k}', f'WBIN_{k}'])
 
-        df = pd.merge(df, new_df[['NORM_VAL', 'BIN']], left_index=True, right_index=True)
-        
-        return df
+        df['NORM_VAL'] = df['NORM_VAL'].apply(clean_bin)
+        df['ORIG_VAL'] = df['ORIG_VAL'].apply(clean_bin)
+
+        return df, all_bin_names
 
     
-    def aggregate_labs(self):
+    def aggregate_labs(self, adm_disch_time):
         # filter NA
         self.labs_df = self.labs_df[self.labs_df.HADM_ID.isna() == False]
         self.labs_df["HADM_ID"] = self.labs_df["HADM_ID"].apply(int)
@@ -144,6 +167,9 @@ class DataProcessor:
         # drop NAs in charttime
         self.labs_df = self.labs_df[self.labs_df.CHARTTIME.isna() == False]
         self.labs_df["CHARTTIME"] = pd.to_datetime(self.labs_df.CHARTTIME)
+
+        self.labs_df = self.labs_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
+        self.labs_df = self.labs_df[self.labs_df["CHARTTIME"] <= self.labs_df["DISCHARGE_TIME"]]
 
         # merge with dict to get label name
         D_LABITEMS = pd.read_csv(os.path.join(self.dataset_path, "D_LABITEMS.csv"))
@@ -156,21 +182,27 @@ class DataProcessor:
         self.labs_df = self.labs_df[self.labs_df['LABEL'].isin(imp_labs)]
 
         # TODO: bin all numerical variables
-        self.labs_df = self._bin_num(self.labs_df, imp_labs, self.start_token_id)
+        self.labs_df, all_bin_names = self._bin_num(self.labs_df, imp_labs, self.start_token_id, self.k_list)
+        base_string = "{label}: {value}"
+        self.labs_df['TEXT'] = self.labs_df.apply(lambda r: base_string.format(label=r['LABEL'], value=r['ORIG_VAL']), axis=1)
 
         # sort for chartdate and time
+        agg_cols = ["LABEL", "CHARTTIME", "NORM_VAL", "TEXT", "ORIG_VAL"] + all_bin_names
         labs_agg_df = (
             self.labs_df.sort_values(
                 by=["CHARTTIME"],
                 na_position="last",
             )
             .groupby(["SUBJECT_ID", "HADM_ID"])
-            .agg({"LABEL": list, "CHARTTIME": list, "NORM_VAL": list, "VALUEUOM": list, "BIN": list})
+            .agg({col:list for col in agg_cols})
         ).reset_index()
 
-        # merge with label to get splits
-        labs_agg_df = labs_agg_df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
+        labs_agg_df = labs_agg_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
 
+        # merge with label to get splits
+        labs_agg_df = labs_agg_df.merge(self.labels_df, on=["HADM_ID"], how="left")
+        labs_agg_df = labs_agg_df[labs_agg_df.SPLIT_50.isna() != True]
+        
         return labs_agg_df
     
     def aggregate_hadm_id(self):
@@ -259,11 +291,11 @@ class DataProcessor:
                 for i in range(len(s.CHARTTIME)) # NOTE: edited to include percent elapsed for discharge summary
             ] # TODO: ensure DS percent is always largest
     
-    def add_temporal_information(self, agg_df, adm_disch_time):
+    def add_temporal_information(self, agg_df):
         """Add time information."""
         # Add temporal information
-        if ("ADMISSION_TIME" not in agg_df.columns) and ("DISCHARGE_TIME" not in agg_df.columns):
-            agg_df = agg_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
+        # if ("ADMISSION_TIME" not in agg_df.columns) and ("DISCHARGE_TIME" not in agg_df.columns):
+        #     agg_df = agg_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
 
         if agg_df.empty:
             return agg_df

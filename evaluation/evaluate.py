@@ -96,10 +96,12 @@ def update_weights_per_class(
             )
     return weights_per_class
 
-def select_tabular_window(tabular_data, percent_elapsed, max_features):
+def select_tabular_window(tabular_data, percent_elapsed, max_features, subset_tabular):
     # filter tabular data to this time window
     if not tabular_data:
         return None
+    if not subset_tabular:
+        return tabular_data
     middle_indices = np.where(
             np.logical_and(tabular_data['percent_elapsed'] > percent_elapsed[0],  
                            tabular_data['percent_elapsed'] > percent_elapsed[-1])
@@ -146,6 +148,7 @@ def evaluate(
     reduce_computation=False,
     qualitative_evaluation=False,
     use_tabular=False,
+    subset_tabular=False,
 ):
     """ Evaluate the model on the validation set.
     """
@@ -183,9 +186,9 @@ def evaluate(
             if use_tabular and len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
                 tabular_data = data["tabular"]
                 # update category ids and cutoffs
-                tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
-                combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
-                cutoffs = get_cutoffs(combined_hours, combined_cat)
+                # tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
+                # combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
+                # cutoffs = get_cutoffs(combined_hours, combined_cat)
             else:
                 tabular_data=None
             if setup == "random":
@@ -203,10 +206,12 @@ def evaluate(
                 # run through data in chunks of max_chunks
                 for i in range(0, input_ids.shape[0], model.max_chunks):
                     # only get the document embeddings
+                    tabular_subset = None
                     if use_tabular:
                         tabular_subset = select_tabular_window(tabular_data, 
                                                             percent_elapsed[i : i + model.max_chunks], 
-                                                            model.max_tabular_features)
+                                                            model.max_tabular_features,
+                                                            subset_tabular)
                     sequence_output = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
@@ -222,6 +227,9 @@ def evaluate(
                         ),
                         cutoffs=None,
                         percent_elapsed=percent_elapsed[i : i + model.max_chunks].to(
+                            device, dtype=torch.long
+                        ),
+                        hours_elapsed=hours_elapsed[i : i + model.max_chunks].to(
                             device, dtype=torch.long
                         ),
                         is_evaluation=True,
@@ -265,6 +273,7 @@ def evaluate(
                     category_ids=category_ids.to(device, dtype=torch.long),
                     cutoffs=cutoffs,
                     percent_elapsed=percent_elapsed.to(device, dtype=torch.long),
+                    hours_elapsed=hours_elapsed.to(device, dtype=torch.long),
                     # note_end_chunk_ids=note_end_chunk_ids,
                     tabular_data=tabular_data,
                 )

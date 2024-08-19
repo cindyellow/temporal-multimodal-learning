@@ -11,8 +11,10 @@ from transformers import (
 )
 import sys
 import os
+import numpy as np
 
 from model.tpberta_modeling import *
+from data.utils import get_cutoffs
 
 from transformers import RobertaConfig
 
@@ -47,12 +49,6 @@ class TabularEncoder(nn.Module):
             query_mask=features_cls_mask,
             input_ids=input_ids,
         )
-
-        if torch.any(torch.isnan(feature_chunk)):
-            # print("Emb:", embedding_output)
-            print("Emb qk NAs:", torch.any(torch.isnan(embedding_output[0])))
-            print("Emb v NAs:", torch.any(torch.isnan(embedding_output[1])))
-            # print("W_q:", self.model.tpberta.intra_attention.W_q.weight)
 
         return feature_chunk
 
@@ -349,6 +345,7 @@ class Model(nn.Module):
             self.tabular_encoder = TabularEncoder(self.tabular_base_checkpoint, freeze_tabular=self.freeze_tabular)
             self.tabular_dim = self.tabular_encoder.config.hidden_size
             self.tabular_mapper = TabularMapper(self.tabular_dim, self.hidden_size)
+            self.chunk_length = 500
 
     def _initialize_embeddings(self):
         self.pelookup = nn.parameter.Parameter(
@@ -406,6 +403,7 @@ class Model(nn.Module):
         category_ids,
         cutoffs,
         percent_elapsed,
+        hours_elapsed,
         note_end_chunk_ids=None,
         tabular_data=None,
         token_type_ids=None,
@@ -457,35 +455,36 @@ class Model(nn.Module):
         if self.use_tabular and tabular_data:
             if len(tabular_data['input_ids'].shape) > 2:
                 tabular_data = {k:v[0] for k,v in tabular_data.items()}
-            tabular_input_ids = tabular_data['input_ids'].to(self.device, dtype=torch.long)
-            tabular_input_scales = tabular_data['input_scales'].to(self.device, dtype=torch.float32)
-            features_cls_mask = tabular_data['features_cls_mask'].to(self.device, dtype=torch.long)
-            tabular_token_type_ids = tabular_data['token_type_ids'].to(self.device, dtype=torch.long)
-            tabular_position_ids = tabular_data['position_ids'].to(self.device, dtype=torch.long)
-            tabular_percent_elapsed = tabular_data['percent_elapsed'].to(self.device, dtype=torch.float16)
-            assert not torch.any(torch.isnan(tabular_input_ids)) and not torch.any(torch.isinf(tabular_input_ids))
-            assert not torch.any(torch.isnan(tabular_input_scales)) and not torch.any(torch.isinf(tabular_input_scales))
-            assert not torch.any(torch.isnan(features_cls_mask)) and not torch.any(torch.isinf(features_cls_mask))
-            assert not torch.any(torch.isnan(tabular_token_type_ids)) and not torch.any(torch.isinf(tabular_token_type_ids))
-            assert not torch.any(torch.isnan(tabular_position_ids)) and not torch.any(torch.isinf(tabular_position_ids)) 
-            assert not torch.any(torch.isnan(tabular_percent_elapsed)) and not torch.any(torch.isinf(tabular_percent_elapsed))
-            
-            tabular_output = self.tabular_encoder(tabular_input_ids, tabular_input_scales, tabular_token_type_ids, tabular_position_ids, features_cls_mask)
-            tabular_output = tabular_output[:, 0, :]
-            if torch.any(torch.isnan(tabular_output)):
-                torch.save(
-                {
-                    "model_state_dict": self.tabular_encoder.state_dict(),
-                },
-                'issue.pth',
-                )
-            assert not torch.any(torch.isnan(tabular_output))
-            tabular_output = self.tabular_mapper(tabular_output)
-            assert not torch.any(torch.isnan(tabular_output))
-            assert not torch.any(torch.isnan(sequence_output))
-            sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+            tabular_input_ids = tabular_data['input_ids']
+            tabular_input_scales = tabular_data['input_scales']
+            features_cls_mask = tabular_data['features_cls_mask']
+            tabular_token_type_ids = tabular_data['token_type_ids']
+            tabular_position_ids = tabular_data['position_ids']
+            tabular_percent_elapsed = tabular_data['percent_elapsed']
+            tabular_hours_elapsed = tabular_data['hours_elapsed']
+            complete_tabular_output = []
+            for i in range(0, tabular_input_ids.shape[0], self.chunk_length):
+                tabular_output = self.tabular_encoder(
+                    input_ids=tabular_input_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long), 
+                    input_scales=tabular_input_scales[i : i + self.chunk_length].to(self.device, dtype=torch.float32),
+                    token_type_ids=tabular_token_type_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long),
+                    position_ids=tabular_position_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long), 
+                    features_cls_mask=features_cls_mask[i : i + self.chunk_length].to(self.device, dtype=torch.long)
+                    )
+                complete_tabular_output.append(tabular_output)
+            tabular_output = torch.cat(complete_tabular_output, dim=0)
+            assert tabular_output.shape[0] == tabular_input_ids.shape[0]
 
-            assert not torch.any(torch.isnan(sequence_output))
+            tabular_output = tabular_output[:, 0, :]
+            tabular_output = self.tabular_mapper(tabular_output)
+
+            tabular_percent_elapsed = tabular_percent_elapsed.to(self.device, dtype=torch.float16)
+            tabular_hours_elapsed = tabular_hours_elapsed.to(self.device, dtype=torch.long)
+            tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
+
+            sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+            combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+            cutoffs = get_cutoffs(combined_hours, combined_cat)
         
         # if not baseline, add document autoregressor
         if not self.is_baseline:
