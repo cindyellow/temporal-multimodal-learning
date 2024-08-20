@@ -103,8 +103,8 @@ def select_tabular_window(tabular_data, percent_elapsed, max_features, subset_ta
     if not subset_tabular:
         return tabular_data
     middle_indices = np.where(
-            np.logical_and(tabular_data['percent_elapsed'] > percent_elapsed[0],  
-                           tabular_data['percent_elapsed'] > percent_elapsed[-1])
+            np.logical_and(tabular_data['percent_elapsed'] >= percent_elapsed[0],  
+                           tabular_data['percent_elapsed'] <= percent_elapsed[-1])
     )[0]
     middle_indices = np.sort(
             np.random.choice(
@@ -186,9 +186,9 @@ def evaluate(
             if use_tabular and len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
                 tabular_data = data["tabular"]
                 # update category ids and cutoffs
-                # tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
-                # combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
-                # cutoffs = get_cutoffs(combined_hours, combined_cat)
+                tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
+                combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
+                cutoffs = get_cutoffs(combined_hours, combined_cat)
             else:
                 tabular_data=None
             if setup == "random":
@@ -212,7 +212,7 @@ def evaluate(
                                                             percent_elapsed[i : i + model.max_chunks], 
                                                             model.max_tabular_features,
                                                             subset_tabular)
-                    sequence_output = model(
+                    sequence_output, _ = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
                         ),
@@ -266,7 +266,7 @@ def evaluate(
                 # # note_end_chunk_ids = data["notes"]["note_end_chunk_ids"]
                 # cutoffs = data["notes"]["cutoffs"]
 
-                scores, _, aux_predictions = model(
+                scores, _, aux_predictions, cutoffs = model(
                     input_ids=input_ids.to(device, dtype=torch.long),
                     attention_mask=attention_mask.to(device, dtype=torch.long),
                     seq_ids=seq_ids.to(device, dtype=torch.long),

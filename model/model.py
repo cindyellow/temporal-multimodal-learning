@@ -510,10 +510,10 @@ class Model(nn.Module):
                 scores = self.label_attn(sequence_output_all, cutoffs=cutoffs)
             else:
                 scores = self.label_attn(sequence_output, cutoffs=cutoffs)
-            return scores, sequence_output, aux_predictions
+            return scores, sequence_output, aux_predictions, cutoffs
 
         else:
             if self.use_all_tokens:
-                return sequence_output_all
+                return sequence_output_all, cutoffs
             else:
-                return sequence_output
+                return sequence_output, cutoffs

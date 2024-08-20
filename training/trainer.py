@@ -212,10 +212,10 @@ class Trainer:
                     tabular_hours_elapsed = tabular_data['hours_elapsed'][0]
                     if self.setup == "random" and self.subset_tabular:
                         tabular_data = self.random_sampling(data["tabular"], self.max_tabular_features)
-                    # # update cutoffs
-                    # tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
-                    # combined_cat, combined_hours = self.model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                    # cutoffs = get_cutoffs(combined_hours, combined_cat)
+                    # update cutoffs
+                    tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
+                    combined_cat, combined_hours = self.model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+                    cutoffs = get_cutoffs(combined_hours, combined_cat)
                 else:
                     tabular_data = None
 
@@ -225,7 +225,7 @@ class Trainer:
                     enable_flash=False
                 ) as disable:
                     # with autocast():
-                    scores, doc_embeddings, aux_predictions = self.model(
+                    scores, doc_embeddings, aux_predictions, cutoffs = self.model(
                         input_ids=input_ids.to(self.device, dtype=torch.long),
                         attention_mask=attention_mask.to(self.device, dtype=torch.long),
                         seq_ids=seq_ids.to(self.device, dtype=torch.long),
