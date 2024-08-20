@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import ast
 import numpy as np
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler, LabelEncoder, QuantileTransformer
 
 
 class DataProcessor:
@@ -108,7 +108,12 @@ class DataProcessor:
 
         df['ORIG_VAL'] = df[important_features].values.tolist()
 
-        normalizer = StandardScaler()
+        normalizer = QuantileTransformer(
+                output_distribution='normal',
+                n_quantiles=max(min(df[df.SPLIT == 'TRAIN'].shape[0] // 30, 1000), 10),
+                subsample=None,
+                random_state=24,
+            )
         df.loc[df.SPLIT == 'TRAIN', important_features] = normalizer.fit_transform(df.loc[df.SPLIT == 'TRAIN', important_features])
         df.loc[df.SPLIT == 'VALIDATION', important_features] = normalizer.transform(df.loc[df.SPLIT == 'VALIDATION', important_features])
         df.loc[df.SPLIT == 'TEST', important_features] = normalizer.transform(df.loc[df.SPLIT == 'TEST', important_features])
