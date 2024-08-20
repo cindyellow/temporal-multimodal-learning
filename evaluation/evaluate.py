@@ -96,12 +96,10 @@ def update_weights_per_class(
             )
     return weights_per_class
 
-def select_tabular_window(tabular_data, percent_elapsed, max_features, subset_tabular):
+def select_tabular_window(tabular_data, percent_elapsed, max_features):
     # filter tabular data to this time window
     if not tabular_data:
         return None
-    if not subset_tabular:
-        return tabular_data
     middle_indices = np.where(
             np.logical_and(tabular_data['percent_elapsed'] >= percent_elapsed[0],  
                            tabular_data['percent_elapsed'] <= percent_elapsed[-1])
@@ -210,8 +208,7 @@ def evaluate(
                     if use_tabular:
                         tabular_subset = select_tabular_window(tabular_data, 
                                                             percent_elapsed[i : i + model.max_chunks], 
-                                                            model.max_tabular_features,
-                                                            subset_tabular)
+                                                            model.max_tabular_features)
                     sequence_output, _ = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
