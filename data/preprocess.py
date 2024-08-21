@@ -60,9 +60,8 @@ class DataProcessor:
         # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
         notes_agg_df = self.prepare_setup(notes_agg_df)
         labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
-        labs_agg_df, tabular_categories_mapping = self.add_category_information(labs_agg_df)
         labs_agg_df = self.add_temporal_information(labs_agg_df)
-        return notes_agg_df, categories_mapping, labs_agg_df, tabular_categories_mapping
+        return notes_agg_df, categories_mapping, labs_agg_df
 
     def prepare_setup(self, notes_agg_df):
         """Prepare notes depending on experiment set-up"""
@@ -109,17 +108,16 @@ class DataProcessor:
 
         df['ORIG_VAL'] = df[important_features].values.tolist()
 
-        # normalizer = QuantileTransformer(
-        #         output_distribution='normal',
-        #         n_quantiles=max(min(df[df.SPLIT == 'TRAIN'].shape[0] // 30, 1000), 10),
-        #         subsample=None,
-        #         random_state=24,
-        #     )
-        normalizer = StandardScaler()
+        normalizer = QuantileTransformer(
+                output_distribution='normal',
+                n_quantiles=max(min(df[df.SPLIT == 'TRAIN'].shape[0] // 30, 1000), 10),
+                subsample=None,
+                random_state=24,
+            )
         df.loc[df.SPLIT == 'TRAIN', important_features] = normalizer.fit_transform(df.loc[df.SPLIT == 'TRAIN', important_features])
         df.loc[df.SPLIT == 'VALIDATION', important_features] = normalizer.transform(df.loc[df.SPLIT == 'VALIDATION', important_features])
         df.loc[df.SPLIT == 'TEST', important_features] = normalizer.transform(df.loc[df.SPLIT == 'TEST', important_features])
-       
+
         fbin_names, wbin_names = {}, {}
         for k in k_list:
             fbin_names[k] = []
@@ -156,14 +154,13 @@ class DataProcessor:
             df[f'WBIN_{k}'] = df[f'WBIN_{k}'].apply(clean_bin)
             df[f'WBIN_{k}'] += (start_token_id - 1)
             all_bin_names.extend([f'FBIN_{k}', f'WBIN_{k}'])
+
         df['NORM_VAL'] = df['NORM_VAL'].apply(clean_bin)
         df['ORIG_VAL'] = df['ORIG_VAL'].apply(clean_bin)
-        
+
         return df, all_bin_names
 
-    # def _filter_charttime(self, s):
-    #     return [s.CHARTTIME[i] for i in range(len(s.CHARTTIME)) if s.CHARTTIME[i] < s.DISCHARGE_TIME]
-
+    
     def aggregate_labs(self, adm_disch_time):
         # filter NA
         self.labs_df = self.labs_df[self.labs_df.HADM_ID.isna() == False]
@@ -209,11 +206,6 @@ class DataProcessor:
         ).reset_index()
 
         labs_agg_df = labs_agg_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
-
-        # labs_agg_df["CHARTTIME"] = labs_agg_df[["CHARTTIME", "DISCHARGE_TIME"]].apply(
-        #     lambda x: [x.CHARTTIME[i] for i in range(len(x.CHARTTIME)) if x.CHARTTIME[i] <= x.DISCHARGE_TIME],
-        #     axis=1,
-        # )
 
         # merge with label to get splits
         labs_agg_df = labs_agg_df.merge(self.labels_df, on=["HADM_ID"], how="left")
@@ -418,3 +410,4 @@ class DataProcessor:
         notes_agg_df = notes_agg_df[notes_agg_df.SPLIT.isna() != True]
 
         return notes_agg_df
+

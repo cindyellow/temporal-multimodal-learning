@@ -96,41 +96,41 @@ def update_weights_per_class(
             )
     return weights_per_class
 
-def select_tabular_window(tabular_data, percent_elapsed, max_features, subset_tabular):
+def select_tabular_window(tabular_data, percent_elapsed, max_features):
     # filter tabular data to this time window
     if not tabular_data:
         return None
-    if not subset_tabular:
-        return tabular_data
+    left_bound = percent_elapsed[0] if percent_elapsed[0] > 0 else -1
+    right_bound = percent_elapsed[-1]
+
     middle_indices = np.where(
-            np.logical_and(tabular_data['percent_elapsed'] > percent_elapsed[0],  
-                           tabular_data['percent_elapsed'] > percent_elapsed[-1])
+            np.logical_and(tabular_data['percent_elapsed'][0] > left_bound,  
+                           tabular_data['percent_elapsed'][0] <= right_bound)
     )[0]
-    middle_indices = np.sort(
-            np.random.choice(
-                middle_indices,
-                max(
-                    0,
-                    min(
-                        len(middle_indices),
-                        max_features,
-                    ),
-                ),
-                replace=False,
-            )
-        )
+    # middle_indices = np.sort(
+    #         np.random.choice(
+    #             middle_indices,
+    #             max(
+    #                 0,
+    #                 min(
+    #                     len(middle_indices),
+    #                     max_features,
+    #                 ),
+    #             ),
+    #             replace=False,
+    #         )
+    #     )
     
     if middle_indices.size == 0:
         return None
-    
-    return {"input_ids": tabular_data['input_ids'][middle_indices],
-            "input_scales": tabular_data['input_scales'][middle_indices],
-            "features_cls_mask": tabular_data['features_cls_mask'][middle_indices],
-            "token_type_ids": tabular_data['token_type_ids'][middle_indices],
-            "position_ids": tabular_data['position_ids'][middle_indices],
-            "hours_elapsed": tabular_data['hours_elapsed'][middle_indices],
-            "percent_elapsed": tabular_data['percent_elapsed'][middle_indices],
-            }
+    return {"input_ids": tabular_data['input_ids'][0][middle_indices],
+        "input_scales": tabular_data['input_scales'][0][middle_indices],
+        "features_cls_mask": tabular_data['features_cls_mask'][0][middle_indices],
+        "token_type_ids": tabular_data['token_type_ids'][0][middle_indices],
+        "position_ids": tabular_data['position_ids'][0][middle_indices],
+        "hours_elapsed": tabular_data['hours_elapsed'][0][middle_indices],
+        "percent_elapsed": tabular_data['percent_elapsed'][0][middle_indices],
+        }
 
 
 def evaluate(
@@ -205,15 +205,17 @@ def evaluate(
 
                 complete_sequence_output = []
                 # run through data in chunks of max_chunks
+                tabular_elapsed = []
                 for i in range(0, input_ids.shape[0], model.max_chunks):
                     # only get the document embeddings
                     tabular_subset = None
                     if use_tabular:
                         tabular_subset = select_tabular_window(tabular_data, 
                                                             percent_elapsed[i : i + model.max_chunks], 
-                                                            model.max_tabular_features, 
-                                                            subset_tabular)
-                    sequence_output = model(
+                                                            model.max_tabular_features)
+                        if tabular_subset:
+                            tabular_elapsed.extend(tabular_subset['percent_elapsed'])
+                    sequence_output, _ = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
                         ),
@@ -268,7 +270,7 @@ def evaluate(
                 # # note_end_chunk_ids = data["notes"]["note_end_chunk_ids"]
                 # cutoffs = data["notes"]["cutoffs"]
 
-                scores, _, aux_predictions, _ = model(
+                scores, _, aux_predictions, _, cutoffs = model(
                     input_ids=input_ids.to(device, dtype=torch.long),
                     attention_mask=attention_mask.to(device, dtype=torch.long),
                     seq_ids=seq_ids.to(device, dtype=torch.long),
@@ -347,3 +349,4 @@ def evaluate(
             json.dump(weights_per_class, open("weights_per_class_3.json", "w"))
 
     return val_metrics, val_metrics_temp, val_metrics_aux
+
