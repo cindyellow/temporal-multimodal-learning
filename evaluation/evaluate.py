@@ -212,7 +212,8 @@ def evaluate(
                         tabular_subset = select_tabular_window(tabular_data, 
                                                             percent_elapsed[i : i + model.max_chunks], 
                                                             model.max_tabular_features)
-                        tabular_elapsed.extend(tabular_subset['percent_elapsed'])
+                        if tabular_subset:
+                            tabular_elapsed.extend(tabular_subset['percent_elapsed'])
                     sequence_output, _ = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
