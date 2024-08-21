@@ -213,7 +213,7 @@ def evaluate(
                                                             percent_elapsed[i : i + model.max_chunks], 
                                                             model.max_tabular_features)
                         if tabular_subset:
-                            tabular_elapsed.extend(tabular_subset['percent_elapsed'])
+                            tabular_elapsed.extend(tabular_subset['hours_elapsed'])
                     sequence_output, _ = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
@@ -241,6 +241,12 @@ def evaluate(
                     complete_sequence_output.append(sequence_output)
                 # concatenate the sequence output
                 sequence_output = torch.cat(complete_sequence_output, dim=0)
+
+                # update cutoff
+                tabular_elapsed = torch.tensor(tabular_elapsed)
+                tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
+                combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
+                cutoffs = get_cutoffs(combined_hours, combined_cat)
 
                 # run through LWAN to get the scores
                 scores = model.label_attn(sequence_output, cutoffs=cutoffs)
