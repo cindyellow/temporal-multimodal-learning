@@ -144,7 +144,8 @@ class CustomDataset(Dataset):
                 'token_type_ids': [],
                 'position_ids': [],
                 'hours_elapsed': [],
-                'percent_elapsed': []}
+                'percent_elapsed': [],
+                "flag_ids": []}
         
         data = data.squeeze(axis=0) # convert to pd series
         
@@ -225,6 +226,17 @@ class CustomDataset(Dataset):
                 )
             )
         ) 
+
+        flag_ids = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [data.FLAG_INDEX[i]] * K
+                        for i in range(N) # one per feature-bin strategy row
+                    ]
+                )
+            )
+        ) 
         
         return {'input_ids': num_fix_part,
                 'input_scales': num_input_scales,
@@ -232,7 +244,8 @@ class CustomDataset(Dataset):
                 'token_type_ids': num_token_types,
                 'position_ids': num_position_ids,
                 'hours_elapsed': hours_elapsed,
-                'percent_elapsed': percent_elapsed}
+                'percent_elapsed': percent_elapsed,
+                'flag_ids': flag_ids}
     
     def __getitem__(self, idx):
         np.random.seed(1)
@@ -394,6 +407,7 @@ class CustomDataset(Dataset):
                 "position_ids": lab_data['position_ids'],
                 "hours_elapsed": lab_data['hours_elapsed'],
                 "percent_elapsed": lab_data['percent_elapsed'],
+                "flag_ids": lab_data['flag_ids']
             }
 
         encoded["notes"] = {

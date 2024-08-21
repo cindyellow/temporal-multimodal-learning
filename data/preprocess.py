@@ -60,8 +60,9 @@ class DataProcessor:
         # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
         notes_agg_df = self.prepare_setup(notes_agg_df)
         labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
+        labs_agg_df, tabular_categories_mapping = self.add_category_information(labs_agg_df)
         labs_agg_df = self.add_temporal_information(labs_agg_df)
-        return notes_agg_df, categories_mapping, labs_agg_df
+        return notes_agg_df, categories_mapping, labs_agg_df, tabular_categories_mapping
 
     def prepare_setup(self, notes_agg_df):
         """Prepare notes depending on experiment set-up"""
@@ -176,11 +177,16 @@ class DataProcessor:
         self.labs_df["CHARTTIME"] = pd.to_datetime(self.labs_df.CHARTTIME)
 
         self.labs_df = self.labs_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
-        self.labs_df = self.labs_df[self.labs_df["CHARTTIME"] <= self.labs_df["DISCHARGE_TIME"]]
+        self.labs_df = self.labs_df[self.labs_df["CHARTTIME"] < self.labs_df["DISCHARGE_TIME"]]
+        self.labs_df["FLAG"] = self.labs_df["FLAG"].fillna('unknown')
+        self.labs_df.loc["FLAG_INDEX"] = 0 # default
+        self.labs_df.loc[self.labs_df["FLAG"] == 'abnormal', "FLAG_INDEX"] = 1
+        self.labs_df.loc[self.labs_df["FLAG"] == 'unknown', "FLAG_INDEX"] = 2
+        print({"delta": 0, "abnormal": 1, "unknown": 2})
 
         # merge with dict to get label name
         D_LABITEMS = pd.read_csv(os.path.join(self.dataset_path, "D_LABITEMS.csv"))
-        self.labs_df = self.labs_df.merge(D_LABITEMS.loc[:, ['ITEMID', 'LABEL']], on='ITEMID', how='inner').loc[:, ['SUBJECT_ID', 'HADM_ID', 'LABEL', 'CHARTTIME', 'VALUENUM', 'VALUEUOM']]
+        self.labs_df = self.labs_df.merge(D_LABITEMS.loc[:, ['ITEMID', 'LABEL']], on='ITEMID', how='inner').loc[:, ['SUBJECT_ID', 'HADM_ID', 'LABEL', 'CHARTTIME', 'VALUENUM', 'FLAG_INDEX']]
 
         with open(os.path.join(self.dataset_path, "lab_ft-imp.txt"), 'r') as f:
             imp_labs = f.read().splitlines()
@@ -192,7 +198,7 @@ class DataProcessor:
         self.labs_df['TEXT'] = self.labs_df.apply(lambda r: base_string.format(label=r['LABEL'], value=r['ORIG_VAL']), axis=1)
 
         # sort for chartdate and time
-        agg_cols = ["LABEL", "CHARTTIME", "NORM_VAL", "TEXT", "ORIG_VAL"] + all_bin_names
+        agg_cols = ["LABEL", "CHARTTIME", "NORM_VAL", "TEXT", "ORIG_VAL", "FLAG_INDEX"] + all_bin_names
         labs_agg_df = (
             self.labs_df.sort_values(
                 by=["CHARTTIME"],
@@ -297,7 +303,7 @@ class DataProcessor:
     
     def _calculate_percent_elapsed(self, s):
         return [
-                (s.CHARTTIME[i] - s.ADMISSION_TIME) / (s.DISCHARGE_TIME - s.ADMISSION_TIME) if s.DISCHARGE_TIME - s.ADMISSION_TIME > pd.Timedelta(0) else 1
+                max(0, (s.CHARTTIME[i] - s.ADMISSION_TIME) / (s.DISCHARGE_TIME - s.ADMISSION_TIME)) if s.DISCHARGE_TIME - s.ADMISSION_TIME > pd.Timedelta(0) else 1
                 for i in range(len(s.CHARTTIME)) # NOTE: edited to include percent elapsed for discharge summary
             ] # TODO: ensure DS percent is always largest
     
