@@ -187,9 +187,9 @@ def evaluate(
             if use_tabular and not textualize and len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
                 tabular_data = data["tabular"]
                 # update category ids and cutoffs
-                # tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
-                # combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
-                # cutoffs = get_cutoffs(combined_hours, combined_cat)
+                tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
+                combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
+                cutoffs = get_cutoffs(combined_hours, combined_cat)
             else:
                 tabular_data=None
             if setup == "random":
@@ -243,6 +243,12 @@ def evaluate(
                     complete_sequence_output.append(sequence_output)
                 # concatenate the sequence output
                 sequence_output = torch.cat(complete_sequence_output, dim=0)
+
+                # update cutoff
+                tabular_elapsed = torch.tensor(tabular_elapsed)
+                tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
+                combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
+                cutoffs = get_cutoffs(combined_hours, combined_cat)
 
                 # run through LWAN to get the scores
                 scores = model.label_attn(sequence_output, cutoffs=cutoffs)
