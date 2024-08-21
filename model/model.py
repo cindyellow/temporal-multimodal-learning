@@ -419,6 +419,11 @@ class Model(nn.Module):
             torch.normal(0, 0.1, size=(2, 1, self.hidden_size), dtype=torch.float),
             requires_grad=True,
         )
+
+        self.felookup = nn.parameter.Parameter(
+            torch.normal(0, 0.1, size=(3, 1, self.hidden_size), dtype=torch.float),
+            requires_grad=True,
+        )
     
     def _squeeze_data(self, tabular_data):
         return {k:v[0] for k,v in tabular_data.items()}
@@ -570,6 +575,7 @@ class Model(nn.Module):
             tabular_position_ids = tabular_data['position_ids']
             tabular_percent_elapsed = tabular_data['percent_elapsed']
             tabular_hours_elapsed = tabular_data['hours_elapsed']
+            flag_ids = tabular_data['flag_ids']
             complete_tabular_output = []
             for i in range(0, tabular_input_ids.shape[0], self.chunk_length):
                 tabular_output = self.tabular_encoder(
@@ -585,6 +591,10 @@ class Model(nn.Module):
 
             tabular_output = tabular_output[:, 0, :]
             tabular_output = self.tabular_mapper(tabular_output)
+            if self.use_flag_embeddings:
+                tabular_output += torch.index_select(
+                    self.melookup, dim=0, index=flag_ids
+                )
             # pool tabular features
             if self.pool_features != 'none':
                 if self.pool_features in ("temporal-max", "temporal-sum"):
