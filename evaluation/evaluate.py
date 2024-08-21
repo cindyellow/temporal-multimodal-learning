@@ -101,34 +101,33 @@ def select_tabular_window(tabular_data, percent_elapsed, max_features):
     if not tabular_data:
         return None
     middle_indices = np.where(
-            np.logical_and(tabular_data['percent_elapsed'] >= percent_elapsed[0],  
-                           tabular_data['percent_elapsed'] <= percent_elapsed[-1])
+            np.logical_and(tabular_data['percent_elapsed'][0] >= percent_elapsed[0],  
+                           tabular_data['percent_elapsed'][0] < percent_elapsed[-1])
     )[0]
-    middle_indices = np.sort(
-            np.random.choice(
-                middle_indices,
-                max(
-                    0,
-                    min(
-                        len(middle_indices),
-                        max_features,
-                    ),
-                ),
-                replace=False,
-            )
-        )
+    # middle_indices = np.sort(
+    #         np.random.choice(
+    #             middle_indices,
+    #             max(
+    #                 0,
+    #                 min(
+    #                     len(middle_indices),
+    #                     max_features,
+    #                 ),
+    #             ),
+    #             replace=False,
+    #         )
+    #     )
     
     if middle_indices.size == 0:
         return None
-    
-    return {"input_ids": tabular_data['input_ids'][middle_indices],
-            "input_scales": tabular_data['input_scales'][middle_indices],
-            "features_cls_mask": tabular_data['features_cls_mask'][middle_indices],
-            "token_type_ids": tabular_data['token_type_ids'][middle_indices],
-            "position_ids": tabular_data['position_ids'][middle_indices],
-            "hours_elapsed": tabular_data['hours_elapsed'][middle_indices],
-            "percent_elapsed": tabular_data['percent_elapsed'][middle_indices],
-            }
+    return {"input_ids": tabular_data['input_ids'][0][middle_indices],
+        "input_scales": tabular_data['input_scales'][0][middle_indices],
+        "features_cls_mask": tabular_data['features_cls_mask'][0][middle_indices],
+        "token_type_ids": tabular_data['token_type_ids'][0][middle_indices],
+        "position_ids": tabular_data['position_ids'][0][middle_indices],
+        "hours_elapsed": tabular_data['hours_elapsed'][0][middle_indices],
+        "percent_elapsed": tabular_data['percent_elapsed'][0][middle_indices],
+        }
 
 
 def evaluate(
@@ -342,3 +341,4 @@ def evaluate(
             json.dump(weights_per_class, open("weights_per_class_3.json", "w"))
 
     return val_metrics, val_metrics_temp, val_metrics_aux
+

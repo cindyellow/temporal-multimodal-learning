@@ -174,7 +174,7 @@ class DataProcessor:
         self.labs_df["CHARTTIME"] = pd.to_datetime(self.labs_df.CHARTTIME)
 
         self.labs_df = self.labs_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
-        self.labs_df = self.labs_df[self.labs_df["CHARTTIME"] <= self.labs_df["DISCHARGE_TIME"]]
+        self.labs_df = self.labs_df[self.labs_df["CHARTTIME"] < self.labs_df["DISCHARGE_TIME"]]
 
         # merge with dict to get label name
         D_LABITEMS = pd.read_csv(os.path.join(self.dataset_path, "D_LABITEMS.csv"))
@@ -292,7 +292,7 @@ class DataProcessor:
     
     def _calculate_percent_elapsed(self, s):
         return [
-                (s.CHARTTIME[i] - s.ADMISSION_TIME) / (s.DISCHARGE_TIME - s.ADMISSION_TIME) if s.DISCHARGE_TIME - s.ADMISSION_TIME > pd.Timedelta(0) else 1
+                max(0, (s.CHARTTIME[i] - s.ADMISSION_TIME) / (s.DISCHARGE_TIME - s.ADMISSION_TIME)) if s.DISCHARGE_TIME - s.ADMISSION_TIME > pd.Timedelta(0) else 1
                 for i in range(len(s.CHARTTIME)) # NOTE: edited to include percent elapsed for discharge summary
             ] # TODO: ensure DS percent is always largest
     
@@ -410,3 +410,4 @@ class DataProcessor:
         notes_agg_df = notes_agg_df[notes_agg_df.SPLIT.isna() != True]
 
         return notes_agg_df
+
