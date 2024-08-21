@@ -100,9 +100,12 @@ def select_tabular_window(tabular_data, percent_elapsed, max_features):
     # filter tabular data to this time window
     if not tabular_data:
         return None
+    left_bound = percent_elapsed[0] if percent_elapsed[0] > 0 else -1
+    right_bound = percent_elapsed[-1]
+
     middle_indices = np.where(
-            np.logical_and(tabular_data['percent_elapsed'][0] >= percent_elapsed[0],  
-                           tabular_data['percent_elapsed'][0] < percent_elapsed[-1])
+            np.logical_and(tabular_data['percent_elapsed'][0] > left_bound,  
+                           tabular_data['percent_elapsed'][0] <= right_bound)
     )[0]
     # middle_indices = np.sort(
     #         np.random.choice(
@@ -201,6 +204,7 @@ def evaluate(
 
                 complete_sequence_output = []
                 # run through data in chunks of max_chunks
+                tabular_elapsed = []
                 for i in range(0, input_ids.shape[0], model.max_chunks):
                     # only get the document embeddings
                     tabular_subset = None
@@ -208,6 +212,7 @@ def evaluate(
                         tabular_subset = select_tabular_window(tabular_data, 
                                                             percent_elapsed[i : i + model.max_chunks], 
                                                             model.max_tabular_features)
+                        tabular_elapsed.extend(tabular_subset['percent_elapsed'])
                     sequence_output, _ = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
