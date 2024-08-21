@@ -290,6 +290,8 @@ def evaluate(
                     preds["hyps_aux"].append(aux_predictions.detach().cpu().numpy())
                     preds["refs_aux"].append(true_categories.detach().cpu().numpy())
 
+            print("cutoffs", cutoffs)
+            print("scores", scores.shape)
             probs = F.sigmoid(scores)
             ids.append(data["notes"]["hadm_id"][0].item())
             avail_doc_count.append(avail_docs)
