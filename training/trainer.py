@@ -227,7 +227,7 @@ class Trainer:
                     enable_flash=False
                 ) as disable:
                     # with autocast():
-                    scores, doc_embeddings, aux_predictions, tabular_scores, cutoffs = self.model(
+                    scores, doc_embeddings, aux_predictions, tabular_scores, tabular_hours_elapsed = self.model(
                         input_ids=input_ids.to(self.device, dtype=torch.long),
                         attention_mask=attention_mask.to(self.device, dtype=torch.long),
                         seq_ids=seq_ids.to(self.device, dtype=torch.long),
@@ -239,6 +239,11 @@ class Trainer:
                         tabular_data=tabular_data,
                     )
                     assert not torch.any(torch.isnan(scores))
+                    if tabular_hours_elapsed is not None:
+                        tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
+                        combined_cat, combined_hours = self.model.combine_sequences(category_ids.to(self.device, dtype=torch.long), tabular_cat_proxy, hours_elapsed.to(self.device, dtype=torch.long), tabular_hours_elapsed)
+                        cutoffs = get_cutoffs(combined_hours, combined_cat)
+
                     # Auxiliary task of predicting next document category
                     if (
                         self.config["aux_task"] == "next_document_category"
@@ -300,26 +305,24 @@ class Trainer:
                         )
                     else:
                         loss_aux = torch.tensor(0)
+                    tabular_weight = 0.3
+                    note_weight = 0.7
+                    if tabular_scores is not None:
+                        weighted_scores = (tabular_weight * tabular_scores) + (note_weight * scores)
+                    else:
+                        weighted_scores = scores
                     if self.config["apply_temporal_loss"]:
                         # train with loss on all temporal points
                         # repeat labels to match the number of temporal points
                         loss_cls = F.binary_cross_entropy_with_logits(
-                            scores[:, :],
+                            weighted_scores[:, :],
                             labels.to(self.device, dtype=self.dtype)[None, :].repeat(
-                                scores.shape[0], 1
+                                weighted_scores.shape[0], 1
                             ),
                         )
                     else:
-                        # train with loss on last temporal point only
-                        tabular_weight = 0.3
-                        note_weight = 0.7
-                        if tabular_scores is not None:
-                            weighted_score = (tabular_weight * tabular_scores[-1, :][None, :]) + (note_weight * scores[-1, :][None, :])
-                        else:
-                            weighted_score = scores[-1, :][None, :]
                         loss_cls = F.binary_cross_entropy_with_logits(
-                            # scores[-1, :][None, :],
-                            weighted_score,
+                            weighted_scores[-1, :][None, :],
                             labels.to(self.device, dtype=self.dtype)[None, :],
                         )
                     # TODO: delete de 1-weights
@@ -338,11 +341,11 @@ class Trainer:
                     train_loss["loss_aux"].append(loss_aux.detach().cpu().numpy())
                     train_loss["loss_total"].append(loss.detach().cpu().numpy())
                     # convert to probabilities
-                    probs = F.sigmoid(scores)
+                    probs = F.sigmoid(weighted_scores)
                     # print(f"cutoffs: {cutoffs}")
                     if torch.any(torch.isnan(probs)):
                         print(f"NA preds for {hadm_id}.")
-                        print("Scores:", scores)
+                        print("Scores:", weighted_scores)
                         print("Probs:", probs)
                         break
                     preds["hyps"].append(probs[-1, :].detach().cpu().numpy())

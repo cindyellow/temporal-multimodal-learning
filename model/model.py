@@ -565,6 +565,7 @@ class Model(nn.Module):
         ]  # remove the singleton to get something of shape [#chunks, hidden_size] or [#chunks*512, hidden_size]
 
         # TODO: add tabular data here
+        tabular_hours_elapsed = None
         if self.use_tabular and tabular_data:
             if len(tabular_data['input_ids'].shape) > 2:
                 tabular_data = {k:v[0] for k,v in tabular_data.items()}
@@ -595,6 +596,7 @@ class Model(nn.Module):
                 tabular_output += torch.index_select(
                     self.melookup, dim=0, index=flag_ids
                 )
+
             # pool tabular features
             if self.pool_features != 'none':
                 if self.pool_features in ("temporal-max", "temporal-sum"):
@@ -626,10 +628,7 @@ class Model(nn.Module):
                 
                 
             if self.late_fuse == "none":              
-                tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
                 sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
-                combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                cutoffs = get_cutoffs(combined_hours, combined_cat)
 
         # if not baseline, add document autoregressor
         if not self.is_baseline:
@@ -663,28 +662,29 @@ class Model(nn.Module):
 
         # NOTE: fuse past embeddings with tabular
         tabular_scores = None
-        
         if self.use_tabular and tabular_data:
             tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1  
-            
-            if self.late_fuse == "embeddings":
-                sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
-                combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                cutoffs = get_cutoffs(combined_hours, combined_cat)  
-            elif self.late_fuse == "predictions":
+            if self.late_fuse == "predictions":
                 # feed tabular data through LWAN
                 tabular_cutoffs = get_cutoffs(tabular_hours_elapsed, tabular_cat_proxy)
                 tabular_scores = self.label_attn(tabular_output, cutoffs=tabular_cutoffs) # M x L x D
+                tabular_hours_elapsed = None
+            else:
+                if self.late_fuse == "embeddings":
+                    sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+                # update cutoff only when tabular is fused with sequence
+                combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+                cutoffs = get_cutoffs(combined_hours, combined_cat)
 
         if is_evaluation == False:
             if self.use_all_tokens:
                 scores = self.label_attn(sequence_output_all, cutoffs=cutoffs)
             else:
                 scores = self.label_attn(sequence_output, cutoffs=cutoffs)
-            return scores, sequence_output, aux_predictions, tabular_scores, cutoffs
+            return scores, sequence_output, aux_predictions, tabular_scores, tabular_hours_elapsed
 
         else:
             if self.use_all_tokens:
-                return sequence_output_all, cutoffs
+                return sequence_output_all, tabular_hours_elapsed
             else:
-                return sequence_output, cutoffs
+                return sequence_output, tabular_hours_elapsed

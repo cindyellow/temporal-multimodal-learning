@@ -73,6 +73,16 @@ class CustomDataset(Dataset):
             padding="max_length",
             return_tensors="pt",
         )
+    
+    def tabular_tokenize(self, tab, max_length):
+        return self.tabular_tokenizer.encode(
+            tab,
+            add_special_tokens=False,
+            truncation=True,
+            max_length=max_length,
+            padding="max_length",
+            return_tensors="pt",
+        )
 
     def _get_note_end_chunk_ids(self, seq_ids):
         id = seq_ids[0]
@@ -150,7 +160,7 @@ class CustomDataset(Dataset):
         data = data.squeeze(axis=0) # convert to pd series
         
         ft_max_tok = 5
-        encoded_feature_names = [self.tabular_tokenizer.encode(l) for l in data.LABEL]
+        encoded_feature_names = [self.tabular_tokenize(l, ft_max_tok) for l in data.LABEL]
 
         N = len(encoded_feature_names)
         # K = 2*len(self.k_list)
@@ -168,24 +178,26 @@ class CustomDataset(Dataset):
         num_num_token = 0
 
         for i, efn in enumerate(encoded_feature_names):
-            if len(efn) >= ft_max_tok:
-                efn = efn[:ft_max_tok]
-            else:
-                efn += ([pad_token_id] * (ft_max_tok - len(efn)))
+            # if len(efn) >= ft_max_tok:
+            #     efn = efn[:ft_max_tok]
+            # else:
+            #     efn += ([pad_token_id] * (ft_max_tok - len(efn)))
             # TODO: extend list for each of k bins
             for k in self.k_list:
                 fbin_name = f'FBIN_{k}'
+                fbin_name_id = self.tabular_tokenize(fbin_name, 5)
+                efn_k = efn + fbin_name_id
                 # wbin_name = f'WBIN_{k}'
-                num_fix_part.extend([cls_token_id] + efn + [data[fbin_name][i]])
+                num_fix_part.extend([cls_token_id] + efn_k + [data[fbin_name][i]])
                 # num_fix_part.extend([cls_token_id] + efn + [data[fbin_name][i]] + 
                 #                     [cls_token_id] + efn + [data[wbin_name][i]])
                 # for _ in range(2):
                 for _ in range(1):
-                    num_token_types.extend([0] + [0] * len(efn) + [1]) # continous type (1)
-                    num_feature_cls_mask.extend([1] + [0] * len(efn) + [0])
-                    num_position_ids.extend([0] + [i for i in range(1, len(efn)+1)] + [0])
+                    num_token_types.extend([0] + [0] * len(efn_k) + [1]) # continous type (1)
+                    num_feature_cls_mask.extend([1] + [0] * len(efn_k) + [0])
+                    num_position_ids.extend([0] + [i for i in range(1, len(efn_k)+1)] + [0])
                     if use_num_multiply:
-                        num_input_scales.extend([data.NORM_VAL[i]] * (1+ len(efn))) #TODO: why noot 2+?
+                        num_input_scales.extend([data.NORM_VAL[i]] * (1+ len(efn_k))) #TODO: why noot 2+?
                         # num_input_scales.append(data['NORM_VAL'][i].repeat(1 + len(efn), axis=1)) # scale for feature name toks and bin tok
         num_fix_part = np.array(num_fix_part).reshape(N*K,-1)
         # num_fix_part[num_fix_part == mask_token_id] = data['BIN'].reshape(-1)
