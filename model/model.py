@@ -422,7 +422,7 @@ class Model(nn.Module):
         )
 
         self.felookup = nn.parameter.Parameter(
-            torch.normal(0, 0.1, size=(3, 1, self.hidden_size), dtype=torch.float),
+            torch.normal(0, 0.1, size=(3, self.hidden_size), dtype=torch.float),
             requires_grad=True,
         )
     
@@ -595,7 +595,7 @@ class Model(nn.Module):
             tabular_output = self.tabular_mapper(tabular_output)
             if self.use_flag_embeddings:
                 tabular_output += torch.index_select(
-                    self.melookup, dim=0, index=flag_ids
+                    self.felookup, dim=0, index=flag_ids.to(self.device, dtype=torch.long),
                 )
 
             # pool tabular features
