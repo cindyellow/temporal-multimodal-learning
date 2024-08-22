@@ -74,14 +74,13 @@ class CustomDataset(Dataset):
             return_tensors="pt",
         )
     
-    def tabular_tokenize(self, tab, max_length):
+    def tabular_tokenize(self, tab, max_length=None):
         return self.tabular_tokenizer.encode(
             tab,
             add_special_tokens=False,
             truncation=True,
             max_length=max_length,
             padding="max_length",
-            return_tensors="pt",
         )
 
     def _get_note_end_chunk_ids(self, seq_ids):
@@ -159,7 +158,7 @@ class CustomDataset(Dataset):
         
         data = data.squeeze(axis=0) # convert to pd series
         
-        ft_max_tok = 5
+        ft_max_tok = 50
         encoded_feature_names = [self.tabular_tokenize(l, ft_max_tok) for l in data.LABEL]
 
         N = len(encoded_feature_names)

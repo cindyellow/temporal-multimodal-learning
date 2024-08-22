@@ -51,6 +51,7 @@ class TabularEncoder(nn.Module):
             query_mask=features_cls_mask,
             input_ids=input_ids,
         )
+
         return feature_chunk
 
 class TabularMapper(nn.Module):

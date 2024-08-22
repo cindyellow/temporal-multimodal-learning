@@ -211,13 +211,8 @@ class Trainer:
                     and not self.textualize 
                     and len(data["tabular"]['input_ids']) > 0): # check if there's tabular data available
                     tabular_data = data["tabular"]
-                    tabular_hours_elapsed = tabular_data['hours_elapsed'][0]
                     if self.setup == "random" and self.subset_tabular:
                         tabular_data = self.random_sampling(data["tabular"], self.max_tabular_features)
-                    # update cutoffs
-                    # tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
-                    # combined_cat, combined_hours = self.model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                    # cutoffs = get_cutoffs(combined_hours, combined_cat)
                 else:
                     tabular_data = None
 

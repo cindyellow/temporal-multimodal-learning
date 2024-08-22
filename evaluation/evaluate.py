@@ -96,7 +96,7 @@ def update_weights_per_class(
             )
     return weights_per_class
 
-def select_tabular_window(tabular_data, percent_elapsed, max_features):
+def select_tabular_window(tabular_data, percent_elapsed, max_features=16):
     # filter tabular data to this time window
     if not tabular_data:
         return None
@@ -185,7 +185,10 @@ def evaluate(
             hours_elapsed = data["notes"]["hours_elapsed"][0]
             cutoffs = data["notes"]["cutoffs"]
 
-            if use_tabular and not textualize and len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
+            if (use_tabular 
+                and not textualize 
+                and len(data["tabular"]['input_ids']) > 0
+            ): # check if there's tabular data available
                 tabular_data = data["tabular"]
             else:
                 tabular_data=None
@@ -234,7 +237,7 @@ def evaluate(
                 if len(tabular_elapsed) > 0:
                     tabular_elapsed = torch.tensor(tabular_elapsed)
                     tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
-                    combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed.to(device, dtype=torch.long), tabular_elapsed)
+                    combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
                     cutoffs = get_cutoffs(combined_hours, combined_cat)
 
                 # run through LWAN to get the scores

@@ -66,6 +66,7 @@ if __name__ == "__main__":
     parser.add_argument('-lf','--late_fuse', type=str, default="none", help="options: embeddings, predictions, none")
     parser.add_argument('-ta','--use_tabular_attn', type=boolean_string, default=False, help="  ")
     parser.add_argument('-me','--use_modality_embeddings', type=boolean_string, default=False, help="  ")
+    parser.add_argument('-fe','--use_flag_embeddings', type=boolean_string, default=False, help="  ")
 
 
     args = parser.parse_args()
@@ -104,6 +105,7 @@ if __name__ == "__main__":
         "use_reverse_document_embeddings": False,
         "use_category_embeddings": True,
         "use_modality_embeddings": args_config["use_modality_embeddings"],
+        "use_flag_embeddings": args_config["use_flag_embeddings"],
         "num_labels": 50,
         "use_all_tokens": args_config["use_all_tokens"],
         "num_heads_labattn": args_config["num_heads_labattn"],
