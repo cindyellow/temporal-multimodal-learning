@@ -60,6 +60,9 @@ class CustomDataset(Dataset):
         self.use_tabular = use_tabular
         self.textualize = textualize
         self.k_list = k_list
+        with open(os.path.join('/vol/bitbucket/ch2223/temporal-multimodal-learning/data/top50_labels.txt')) as f:
+            self.top50_labels = f.read().splitlines()
+        f.close()
         np.random.seed(1)
 
     def __len__(self):
@@ -133,6 +136,95 @@ class CustomDataset(Dataset):
         )
         return first_indices.tolist() + middle_indices.tolist() + last_indices.tolist()
 
+    def inject_icd(self, data, label, use_num_multiply=False):
+        """
+        Adapted from TP-BERTa. Encode tabular data (labs) for an HADM_ID's data.
+        """
+        if data.empty:
+            return {'input_ids': [],
+                'input_scales': [],
+                'features_cls_mask': [],
+                'token_type_ids': [],
+                'position_ids': [],
+                'hours_elapsed': [],
+                'percent_elapsed': [],
+                "flag_ids": []}
+        
+        data = data.squeeze(axis=0) # convert to pd series
+        
+        ft_max_tok = 30
+        label_ind = label.nonzero().flatten().tolist()
+        labels = [self.top50_labels[i] for i in label_ind]
+
+        encoded_feature_names = [self.tabular_tokenizer.encode(l) * 16 for l in labels]
+
+        N = len(encoded_feature_names)
+        # K = 2*len(self.k_list)
+        K = len(self.k_list)
+
+        input_ids = []
+        num_fix_part, num_token_types, num_position_ids, \
+            num_feature_cls_mask, num_input_scales = [], [], [], [], []
+        
+        # prepare encoded pieces
+        cls_token_id = self.tabular_tokenizer.cls_token_id
+        sep_token_id = self.tabular_tokenizer.sep_token_id
+        pad_token_id = self.tabular_tokenizer.pad_token_id
+        mask_token_id = self.tabular_tokenizer.mask_token_id
+
+        for _ in range(16):
+            for i, efn in enumerate(encoded_feature_names):
+                if len(efn) >= ft_max_tok:
+                    efn = efn[:ft_max_tok]
+                else:
+                    efn += ([pad_token_id] * (ft_max_tok - len(efn)))
+                input_ids.extend([cls_token_id] + efn)
+        
+        input_ids = np.array(input_ids).reshape(N*K*16,-1)
+
+        # Get hours elapsed
+        hours_elapsed = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [np.random.randint(0, 100)] * K * 16
+                        for i in range(N) # one per feature-bin strategy row
+                    ]
+                )
+            )
+        )
+
+        percent_elapsed = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [np.random.uniform(0,1)] * K * 16
+                        for i in range(N) # one per feature-bin strategy row
+                    ]
+                )
+            )
+        ) 
+
+        flag_ids = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [1] * K * 16
+                        for i in range(N) # one per feature-bin strategy row
+                    ]
+                )
+            )
+        ) 
+        
+        return {'input_ids': input_ids,
+                'input_scales': num_input_scales,
+                'features_cls_mask': num_feature_cls_mask,
+                'token_type_ids': num_token_types,
+                'position_ids': num_position_ids,
+                'hours_elapsed': hours_elapsed,
+                'percent_elapsed': percent_elapsed,
+                'flag_ids': flag_ids}
+    
     def encode_tabular(self, data, use_num_multiply=False):
         """
         Adapted from TP-BERTa. Encode tabular data (labs) for an HADM_ID's data.
@@ -371,7 +463,8 @@ class CustomDataset(Dataset):
         cutoffs = self._get_cutoffs(hours_elapsed, category_ids)
 
         if self.use_tabular and not self.textualize:
-            lab_data = self.encode_tabular(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id])
+            # lab_data = self.encode_tabular(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id])
+            lab_data = self.inject_icd(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id], label)
             # if self.setup == "latest":
             #     encoded["tabular"] = {
             #         "input_ids": lab_data['input_ids'][-self.max_chunks :],

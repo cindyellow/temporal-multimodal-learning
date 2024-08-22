@@ -25,7 +25,7 @@ class DataProcessor:
         #     os.path.join(dataset_path, "splits/caml_splits.csv")
         # )
         self.dataset_path = dataset_path
-        self.labels_df = self.process_labels(
+        self.labels_df, self.top50_labels = self.process_labels(
             os.path.join(dataset_path, "LABEL_SPLITS.csv")
         )
         self.config = config
@@ -50,7 +50,7 @@ class DataProcessor:
         LABEL_SPLITS_50 = LABEL_SPLITS_50.drop(top50_labels, axis=1)
         LABEL_SPLITS_50["SPLIT"] = LABEL_SPLITS_50["SPLIT_50"]
         
-        return LABEL_SPLITS_50
+        return LABEL_SPLITS_50, top50_labels
 
     def aggregate_data(self):
         """Preprocess data and aggregate."""
@@ -58,13 +58,19 @@ class DataProcessor:
         notes_agg_df, categories_mapping = self.add_category_information(notes_agg_df)
         notes_agg_df = self.add_temporal_information(notes_agg_df)
         # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
-        notes_agg_df = self.prepare_setup(notes_agg_df)
+        # notes_agg_df = self.prepare_setup(notes_agg_df)
         labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
         labs_agg_df = self.add_temporal_information(labs_agg_df)
+        notes_agg_df = self.prepare_setup(notes_agg_df, labs_agg_df['HADM_ID'])
         return notes_agg_df, categories_mapping, labs_agg_df
 
-    def prepare_setup(self, notes_agg_df):
+    def prepare_setup(self, notes_agg_df, col):
         """Prepare notes depending on experiment set-up"""
+        unique_ids = col.unique().tolist()
+        print("before", notes_agg_df.shape)
+        print("ids", len(unique_ids))
+        notes_agg_df = notes_agg_df[notes_agg_df['HADM_ID'].isin(unique_ids)]
+        print("after", notes_agg_df.shape)
         return notes_agg_df
 
     def filter_discharge_summary(self):
@@ -191,8 +197,13 @@ class DataProcessor:
         self.labs_df = self.labs_df[self.labs_df['LABEL'].isin(imp_labs)]
 
         self.labs_df, all_bin_names = self._bin_num(self.labs_df, imp_labs, self.start_token_id, self.k_list)
+        self.labs_df = self.labs_df.merge(self.labels_df, on=["HADM_ID"], how="left")
         base_string = "{label}: {value}"
-        self.labs_df['TEXT'] = self.labs_df.apply(lambda r: base_string.format(label=r['LABEL'], value=r['ORIG_VAL']), axis=1)
+        self.labs_df['ICD_IND'] = self.labs_df.apply(lambda r: [i for i, e in enumerate(r['ICD9_CODE_BINARY']) if e != 0], axis=1)
+        def get_codes(r):
+            return [self.top50_labels[i] for i in r['ICD_IND']]
+        self.labs_df['ICD_IND'] = self.labs_df.apply(lambda r: get_codes(r), axis=1)
+        self.labs_df['TEXT'] = self.labs_df.apply(lambda r: base_string.format(label="ICD", value=r['ICD_IND']), axis=1)
 
         # sort for chartdate and time
         agg_cols = ["LABEL", "CHARTTIME", "NORM_VAL", "TEXT", "ORIG_VAL", "FLAG_INDEX"] + all_bin_names

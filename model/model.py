@@ -374,6 +374,7 @@ class Model(nn.Module):
             self.tabular_encoder = TabularEncoder(self.tabular_base_checkpoint, freeze_tabular=self.freeze_tabular)
             self.tabular_dim = self.tabular_encoder.config.hidden_size
             self.tabular_mapper = TabularMapper(self.tabular_dim, self.hidden_size)
+            self.tabular_linear = nn.Linear(30, self.hidden_size)
             self.chunk_length = 500
             if self.use_tabular_attn:
                 self.tabular_regressor = HierARDocumentTransformer(
@@ -524,77 +525,89 @@ class Model(nn.Module):
         chunk_count = input_ids.size()[0]
         reverse_pos_ids = (chunk_count - torch.arange(chunk_count) - 1).to(self.device)
 
-        sequence_output = self.transformer(input_ids, attention_mask).last_hidden_state
+        # sequence_output = self.transformer(input_ids, attention_mask).last_hidden_state
 
-        if self.use_positional_embeddings:
-            sequence_output += self.pelookup[: sequence_output.size()[0], :, :]
-        if self.use_reverse_positional_embeddings:
-            sequence_output += torch.index_select(
-                self.reversepelookup, dim=0, index=reverse_pos_ids
-            )
+        # if self.use_positional_embeddings:
+        #     sequence_output += self.pelookup[: sequence_output.size()[0], :, :]
+        # if self.use_reverse_positional_embeddings:
+        #     sequence_output += torch.index_select(
+        #         self.reversepelookup, dim=0, index=reverse_pos_ids
+        #     )
 
-        if self.use_document_embeddings:
-            sequence_output += torch.index_select(self.delookup, dim=0, index=seq_ids)
-        if self.use_reverse_document_embeddings:
-            sequence_output += torch.index_select(
-                self.reversedelookup, dim=0, index=reverse_seq_ids
-            )
+        # if self.use_document_embeddings:
+        #     sequence_output += torch.index_select(self.delookup, dim=0, index=seq_ids)
+        # if self.use_reverse_document_embeddings:
+        #     sequence_output += torch.index_select(
+        #         self.reversedelookup, dim=0, index=reverse_seq_ids
+        #     )
 
-        if self.use_category_embeddings:
-            sequence_output += torch.index_select(
-                self.celookup, dim=0, index=category_ids
-            )
-        if self.use_modality_embeddings:
-            modality_ids = torch.zeros_like(category_ids, dtype=torch.long)
-            sequence_output += torch.index_select(
-                self.melookup, dim=0, index=modality_ids
-            )
+        # if self.use_category_embeddings:
+        #     sequence_output += torch.index_select(
+        #         self.celookup, dim=0, index=category_ids
+        #     )
+        # if self.use_modality_embeddings:
+        #     modality_ids = torch.zeros_like(category_ids, dtype=torch.long)
+        #     sequence_output += torch.index_select(
+        #         self.melookup, dim=0, index=modality_ids
+        #     )
 
-        if self.use_all_tokens:
-            # before: sequence_output shape [batchsize, seqlen, hiddensize] = [# chunks, 512, hidden size]
-            # after: sequence_output shape [#chunks*512, 1, hidden size]
-            sequence_output_all = sequence_output.view(-1, 1, self.hidden_size)
-            sequence_output_all = sequence_output_all[:, 0, :]
-            sequence_output = sequence_output[:, [0], :]
+        # if self.use_all_tokens:
+        #     # before: sequence_output shape [batchsize, seqlen, hiddensize] = [# chunks, 512, hidden size]
+        #     # after: sequence_output shape [#chunks*512, 1, hidden size]
+        #     sequence_output_all = sequence_output.view(-1, 1, self.hidden_size)
+        #     sequence_output_all = sequence_output_all[:, 0, :]
+        #     sequence_output = sequence_output[:, [0], :]
 
-        else:
-            sequence_output = sequence_output[:, [0], :]
+        # else:
+        #     sequence_output = sequence_output[:, [0], :]
 
-        sequence_output = sequence_output[
-            :, 0, :
-        ]  # remove the singleton to get something of shape [#chunks, hidden_size] or [#chunks*512, hidden_size]
+        # sequence_output = sequence_output[
+        #     :, 0, :
+        # ]  # remove the singleton to get something of shape [#chunks, hidden_size] or [#chunks*512, hidden_size]
 
         # TODO: add tabular data here
+        tabular_hours_elapsed = None
+        sequence_output = None
+        sequence_output_all = None
         if self.use_tabular and tabular_data:
             if len(tabular_data['input_ids'].shape) > 2:
-                tabular_data = {k:v[0] for k,v in tabular_data.items()}
-            tabular_input_ids = tabular_data['input_ids']
-            tabular_input_scales = tabular_data['input_scales']
-            features_cls_mask = tabular_data['features_cls_mask']
-            tabular_token_type_ids = tabular_data['token_type_ids']
-            tabular_position_ids = tabular_data['position_ids']
-            tabular_percent_elapsed = tabular_data['percent_elapsed']
-            tabular_hours_elapsed = tabular_data['hours_elapsed']
-            flag_ids = tabular_data['flag_ids']
-            complete_tabular_output = []
-            for i in range(0, tabular_input_ids.shape[0], self.chunk_length):
-                tabular_output = self.tabular_encoder(
-                    input_ids=tabular_input_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long), 
-                    input_scales=tabular_input_scales[i : i + self.chunk_length].to(self.device, dtype=torch.float32),
-                    token_type_ids=tabular_token_type_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long),
-                    position_ids=tabular_position_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long), 
-                    features_cls_mask=features_cls_mask[i : i + self.chunk_length].to(self.device, dtype=torch.long)
-                    )
-                complete_tabular_output.append(tabular_output)
-            tabular_output = torch.cat(complete_tabular_output, dim=0)
-            assert tabular_output.shape[0] == tabular_input_ids.shape[0]
+                tabular_input_ids = tabular_data['input_ids'][0]
+                tabular_percent_elapsed = tabular_data['percent_elapsed'][0]
+                tabular_hours_elapsed = tabular_data['hours_elapsed'][0]
+                flag_ids = tabular_data['flag_ids'][0]
+                # tabular_data = {k:v[0] for k,v in tabular_data.items()}
+            else:
+                tabular_input_ids = tabular_data['input_ids']
+            # tabular_input_scales = tabular_data['input_scales']
+            # features_cls_mask = tabular_data['features_cls_mask']
+            # tabular_token_type_ids = tabular_data['token_type_ids']
+            # tabular_position_ids = tabular_data['position_ids']
+                tabular_percent_elapsed = tabular_data['percent_elapsed']
+                tabular_hours_elapsed = tabular_data['hours_elapsed']
+                flag_ids = tabular_data['flag_ids']
 
+            # complete_tabular_output = []
+            # for i in range(0, tabular_input_ids.shape[0], self.chunk_length):
+            #     tabular_output = self.tabular_encoder(
+            #         input_ids=tabular_input_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long), 
+            #         input_scales=tabular_input_scales[i : i + self.chunk_length].to(self.device, dtype=torch.float32),
+            #         token_type_ids=tabular_token_type_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long),
+            #         position_ids=tabular_position_ids[i : i + self.chunk_length].to(self.device, dtype=torch.long), 
+            #         features_cls_mask=features_cls_mask[i : i + self.chunk_length].to(self.device, dtype=torch.long)
+            #         )
+            #     complete_tabular_output.append(tabular_output)
+            # tabular_output = torch.cat(complete_tabular_output, dim=0)
+            # assert tabular_output.shape[0] == tabular_input_ids.shape[0]
+            
+            tabular_output = self.tabular_encoder.model.tpberta.embeddings.word_embeddings(tabular_input_ids.to(self.device, dtype=torch.long))
             tabular_output = tabular_output[:, 0, :]
-            tabular_output = self.tabular_mapper(tabular_output)
+            sequence_output = self.tabular_mapper(tabular_output)
+            sequence_output_all = sequence_output
             if self.use_flag_embeddings:
                 tabular_output += torch.index_select(
                     self.melookup, dim=0, index=flag_ids
                 )
+
             # pool tabular features
             if self.pool_features != 'none':
                 if self.pool_features in ("temporal-max", "temporal-sum"):
@@ -625,15 +638,14 @@ class Model(nn.Module):
                 sequence_output = self.gate(sequence_output, tabular_output)
                 
                 
-            if self.late_fuse == "none":              
-                tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
-                sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
-                combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                cutoffs = get_cutoffs(combined_hours, combined_cat)
+            # if self.late_fuse == "none":              
+                # sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
 
         # if not baseline, add document autoregressor
         if not self.is_baseline:
             # document regressor returns document embeddings and predicted categories
+            assert sequence_output.shape[0] > 0
+            assert sequence_output.shape[0] == tabular_input_ids.shape[0]
             sequence_output = self.document_regressor(
                 sequence_output.view(-1, 1, self.hidden_size)
             )
@@ -663,28 +675,29 @@ class Model(nn.Module):
 
         # NOTE: fuse past embeddings with tabular
         tabular_scores = None
-        
         if self.use_tabular and tabular_data:
             tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1  
-            
-            if self.late_fuse == "embeddings":
-                sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
-                combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                cutoffs = get_cutoffs(combined_hours, combined_cat)  
-            elif self.late_fuse == "predictions":
+            if self.late_fuse == "predictions":
                 # feed tabular data through LWAN
                 tabular_cutoffs = get_cutoffs(tabular_hours_elapsed, tabular_cat_proxy)
                 tabular_scores = self.label_attn(tabular_output, cutoffs=tabular_cutoffs) # M x L x D
+                tabular_hours_elapsed = None
+            else:
+                if self.late_fuse == "embeddings":
+                    sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+                # update cutoff only when tabular is fused with sequence
+                combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
+                cutoffs = get_cutoffs(tabular_hours_elapsed, tabular_cat_proxy)
 
         if is_evaluation == False:
             if self.use_all_tokens:
                 scores = self.label_attn(sequence_output_all, cutoffs=cutoffs)
             else:
                 scores = self.label_attn(sequence_output, cutoffs=cutoffs)
-            return scores, sequence_output, aux_predictions, tabular_scores, cutoffs
+            return scores, sequence_output, aux_predictions, tabular_scores, tabular_hours_elapsed
 
         else:
             if self.use_all_tokens:
-                return sequence_output_all, cutoffs
+                return sequence_output_all, tabular_hours_elapsed
             else:
-                return sequence_output, cutoffs
+                return sequence_output, tabular_hours_elapsed

@@ -124,12 +124,13 @@ def select_tabular_window(tabular_data, percent_elapsed, max_features):
     if middle_indices.size == 0:
         return None
     return {"input_ids": tabular_data['input_ids'][0][middle_indices],
-        "input_scales": tabular_data['input_scales'][0][middle_indices],
-        "features_cls_mask": tabular_data['features_cls_mask'][0][middle_indices],
-        "token_type_ids": tabular_data['token_type_ids'][0][middle_indices],
-        "position_ids": tabular_data['position_ids'][0][middle_indices],
+        # "input_scales": tabular_data['input_scales'][0][middle_indices],
+        # "features_cls_mask": tabular_data['features_cls_mask'][0][middle_indices],
+        # "token_type_ids": tabular_data['token_type_ids'][0][middle_indices],
+        # "position_ids": tabular_data['position_ids'][0][middle_indices],
         "hours_elapsed": tabular_data['hours_elapsed'][0][middle_indices],
         "percent_elapsed": tabular_data['percent_elapsed'][0][middle_indices],
+        "flag_ids": tabular_data['flag_ids'][0][middle_indices],
         }
 
 
@@ -187,22 +188,12 @@ def evaluate(
             if use_tabular and not textualize and len(data["tabular"]['input_ids']) > 0: # check if there's tabular data available
                 tabular_data = data["tabular"]
                 # update category ids and cutoffs
-                tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
-                combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
-                cutoffs = get_cutoffs(combined_hours, combined_cat)
+                # tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1
+                # combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_data['hours_elapsed'][0])
+                # cutoffs = get_cutoffs(combined_hours, combined_cat)
             else:
                 tabular_data=None
             if setup == "random":
-                # labels = data["notes"]["label"][0][: model.num_labels]
-                # input_ids = data["notes"]["input_ids"][0]
-                # attention_mask = data["notes"]["attention_mask"][0]
-                # seq_ids = data["notes"]["seq_ids"][0]
-                # category_ids = data["notes"]["category_ids"][0]
-                # percent_elapsed = data["notes"]["percent_elapsed"][0]
-                # avail_docs = seq_ids.max().item() + 1
-                # # note_end_chunk_ids = data["notes"]["note_end_chunk_ids"]
-                # cutoffs = data["notes"]["cutoffs"]
-
                 complete_sequence_output = []
                 # run through data in chunks of max_chunks
                 tabular_elapsed = []
@@ -211,11 +202,9 @@ def evaluate(
                     tabular_subset = None
                     if use_tabular:
                         tabular_subset = select_tabular_window(tabular_data, 
-                                                            percent_elapsed[i : i + model.max_chunks], 
-                                                            model.max_tabular_features)
-                        if tabular_subset:
-                            tabular_elapsed.extend(tabular_subset['percent_elapsed'])
-                    sequence_output, _ = model(
+                                                            percent_elapsed, 
+                                                            model.max_tabular_features)                            
+                    sequence_output, tabular_hours_elapsed = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
                         ),
@@ -237,18 +226,20 @@ def evaluate(
                         ),
                         is_evaluation=True,
                         tabular_data=tabular_subset,
-                        # tabular_data=tabular_data
                         # note_end_chunk_ids=note_end_chunk_ids,
                     )
                     complete_sequence_output.append(sequence_output)
+                    if tabular_hours_elapsed is not None:
+                        tabular_elapsed.extend(tabular_hours_elapsed)
                 # concatenate the sequence output
                 sequence_output = torch.cat(complete_sequence_output, dim=0)
 
                 # update cutoff
-                tabular_elapsed = torch.tensor(tabular_elapsed)
-                tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
-                combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
-                cutoffs = get_cutoffs(combined_hours, combined_cat)
+                if len(tabular_elapsed) > 0:
+                    tabular_elapsed = torch.tensor(tabular_elapsed).to(device, dtype=torch.long)
+                    tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
+                    combined_cat, combined_hours = model.combine_sequences(category_ids.to(device, dtype=torch.long), tabular_cat_proxy, hours_elapsed.to(device, dtype=torch.long), tabular_elapsed)
+                    cutoffs = get_cutoffs(tabular_elapsed, tabular_cat_proxy)
 
                 # run through LWAN to get the scores
                 scores = model.label_attn(sequence_output, cutoffs=cutoffs)
@@ -266,17 +257,7 @@ def evaluate(
                     )
 
             else:
-                # labels = data["notes"]["label"][0][: model.num_labels]
-                # input_ids = data["notes"]["input_ids"][0]
-                # attention_mask = data["notes"]["attention_mask"][0]
-                # seq_ids = data["notes"]["seq_ids"][0]
-                # category_ids = data["notes"]["category_ids"][0]
-                # percent_elapsed = data["notes"]["percent_elapsed"][0]
-                # avail_docs = seq_ids.max().item() + 1
-                # # note_end_chunk_ids = data["notes"]["note_end_chunk_ids"]
-                # cutoffs = data["notes"]["cutoffs"]
-
-                scores, _, aux_predictions, _, cutoffs = model(
+                scores, _, aux_predictions, tabular_scores, tabular_hours_elapsed = model(
                     input_ids=input_ids.to(device, dtype=torch.long),
                     attention_mask=attention_mask.to(device, dtype=torch.long),
                     seq_ids=seq_ids.to(device, dtype=torch.long),
@@ -287,6 +268,12 @@ def evaluate(
                     # note_end_chunk_ids=note_end_chunk_ids,
                     tabular_data=tabular_data,
                 )
+                # update cutoff
+                if tabular_hours_elapsed is not None:
+                    tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
+                    combined_cat, combined_hours = model.combine_sequences(category_ids.to(device, dtype=torch.long), tabular_cat_proxy, hours_elapsed.to(device, dtype=torch.long), tabular_hours_elapsed)
+                    cutoffs = get_cutoffs(tabular_hours_elapsed, tabular_cat_proxy)
+
             if aux_task == "next_document_category":
                 if len(category_ids) > 1 and aux_predictions is not None:
                     true_categories = F.one_hot(
