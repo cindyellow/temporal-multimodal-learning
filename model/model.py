@@ -525,50 +525,49 @@ class Model(nn.Module):
         chunk_count = input_ids.size()[0]
         reverse_pos_ids = (chunk_count - torch.arange(chunk_count) - 1).to(self.device)
 
-        # sequence_output = self.transformer(input_ids, attention_mask).last_hidden_state
+        sequence_output = self.transformer(input_ids, attention_mask).last_hidden_state
 
-        # if self.use_positional_embeddings:
-        #     sequence_output += self.pelookup[: sequence_output.size()[0], :, :]
-        # if self.use_reverse_positional_embeddings:
-        #     sequence_output += torch.index_select(
-        #         self.reversepelookup, dim=0, index=reverse_pos_ids
-        #     )
+        if self.use_positional_embeddings:
+            sequence_output += self.pelookup[: sequence_output.size()[0], :, :]
+        if self.use_reverse_positional_embeddings:
+            sequence_output += torch.index_select(
+                self.reversepelookup, dim=0, index=reverse_pos_ids
+            )
 
-        # if self.use_document_embeddings:
-        #     sequence_output += torch.index_select(self.delookup, dim=0, index=seq_ids)
-        # if self.use_reverse_document_embeddings:
-        #     sequence_output += torch.index_select(
-        #         self.reversedelookup, dim=0, index=reverse_seq_ids
-        #     )
+        if self.use_document_embeddings:
+            sequence_output += torch.index_select(self.delookup, dim=0, index=seq_ids)
+        if self.use_reverse_document_embeddings:
+            sequence_output += torch.index_select(
+                self.reversedelookup, dim=0, index=reverse_seq_ids
+            )
 
-        # if self.use_category_embeddings:
-        #     sequence_output += torch.index_select(
-        #         self.celookup, dim=0, index=category_ids
-        #     )
-        # if self.use_modality_embeddings:
-        #     modality_ids = torch.zeros_like(category_ids, dtype=torch.long)
-        #     sequence_output += torch.index_select(
-        #         self.melookup, dim=0, index=modality_ids
-        #     )
+        if self.use_category_embeddings:
+            sequence_output += torch.index_select(
+                self.celookup, dim=0, index=category_ids
+            )
+        if self.use_modality_embeddings:
+            modality_ids = torch.zeros_like(category_ids, dtype=torch.long)
+            sequence_output += torch.index_select(
+                self.melookup, dim=0, index=modality_ids
+            )
 
-        # if self.use_all_tokens:
-        #     # before: sequence_output shape [batchsize, seqlen, hiddensize] = [# chunks, 512, hidden size]
-        #     # after: sequence_output shape [#chunks*512, 1, hidden size]
-        #     sequence_output_all = sequence_output.view(-1, 1, self.hidden_size)
-        #     sequence_output_all = sequence_output_all[:, 0, :]
-        #     sequence_output = sequence_output[:, [0], :]
+        if self.use_all_tokens:
+            # before: sequence_output shape [batchsize, seqlen, hiddensize] = [# chunks, 512, hidden size]
+            # after: sequence_output shape [#chunks*512, 1, hidden size]
+            sequence_output_all = sequence_output.view(-1, 1, self.hidden_size)
+            sequence_output_all = sequence_output_all[:, 0, :]
+            sequence_output = sequence_output[:, [0], :]
 
-        # else:
-        #     sequence_output = sequence_output[:, [0], :]
+        else:
+            sequence_output = sequence_output[:, [0], :]
 
-        # sequence_output = sequence_output[
-        #     :, 0, :
-        # ]  # remove the singleton to get something of shape [#chunks, hidden_size] or [#chunks*512, hidden_size]
+        sequence_output = sequence_output[
+            :, 0, :
+        ]  # remove the singleton to get something of shape [#chunks, hidden_size] or [#chunks*512, hidden_size]
 
         # TODO: add tabular data here
         tabular_hours_elapsed = None
-        sequence_output = None
-        sequence_output_all = None
+
         if self.use_tabular and tabular_data:
             if len(tabular_data['input_ids'].shape) > 2:
                 tabular_input_ids = tabular_data['input_ids'][0]
@@ -600,9 +599,13 @@ class Model(nn.Module):
             # assert tabular_output.shape[0] == tabular_input_ids.shape[0]
             
             tabular_output = self.tabular_encoder.model.tpberta.embeddings.word_embeddings(tabular_input_ids.to(self.device, dtype=torch.long))
+            L = tabular_output.shape[1]
+            tabular_output = tabular_output.view(-1, 1, self.hidden_size)
             tabular_output = tabular_output[:, 0, :]
-            sequence_output = self.tabular_mapper(tabular_output)
-            sequence_output_all = sequence_output
+            tabular_percent_elapsed = torch.repeat_interleave(tabular_percent_elapsed, L)
+            tabular_hours_elapsed = torch.repeat_interleave(tabular_hours_elapsed, L)
+            # tabular_output = tabular_output[:, 0, :]
+            tabular_output = self.tabular_mapper(tabular_output)
             if self.use_flag_embeddings:
                 tabular_output += torch.index_select(
                     self.melookup, dim=0, index=flag_ids
@@ -638,14 +641,12 @@ class Model(nn.Module):
                 sequence_output = self.gate(sequence_output, tabular_output)
                 
                 
-            # if self.late_fuse == "none":              
-                # sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
+            if self.late_fuse == "none":              
+                sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
 
         # if not baseline, add document autoregressor
         if not self.is_baseline:
             # document regressor returns document embeddings and predicted categories
-            assert sequence_output.shape[0] > 0
-            assert sequence_output.shape[0] == tabular_input_ids.shape[0]
             sequence_output = self.document_regressor(
                 sequence_output.view(-1, 1, self.hidden_size)
             )
@@ -687,7 +688,7 @@ class Model(nn.Module):
                     sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
                 # update cutoff only when tabular is fused with sequence
                 combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-                cutoffs = get_cutoffs(tabular_hours_elapsed, tabular_cat_proxy)
+                cutoffs = get_cutoffs(combined_hours, combined_cat)
 
         if is_evaluation == False:
             if self.use_all_tokens:

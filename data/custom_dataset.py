@@ -156,9 +156,9 @@ class CustomDataset(Dataset):
         label_ind = label.nonzero().flatten().tolist()
         labels = [self.top50_labels[i] for i in label_ind]
 
-        encoded_feature_names = [self.tabular_tokenizer.encode(l) * 16 for l in labels]
+        encoded_feature_names = [self.tabular_tokenizer.encode(l) for l in labels]
 
-        N = len(encoded_feature_names)
+        N = min(len(encoded_feature_names), len(data.LABEL))
         # K = 2*len(self.k_list)
         K = len(self.k_list)
 
@@ -172,22 +172,21 @@ class CustomDataset(Dataset):
         pad_token_id = self.tabular_tokenizer.pad_token_id
         mask_token_id = self.tabular_tokenizer.mask_token_id
 
-        for _ in range(16):
-            for i, efn in enumerate(encoded_feature_names):
-                if len(efn) >= ft_max_tok:
-                    efn = efn[:ft_max_tok]
-                else:
-                    efn += ([pad_token_id] * (ft_max_tok - len(efn)))
-                input_ids.extend([cls_token_id] + efn)
+        for i, efn in enumerate(encoded_feature_names):
+            if len(efn) >= ft_max_tok:
+                efn = efn[:ft_max_tok]
+            else:
+                efn += ([pad_token_id] * (ft_max_tok - len(efn)))
+            input_ids.extend([cls_token_id] + efn)
         
-        input_ids = np.array(input_ids).reshape(N*K*16,-1)
+        input_ids = np.array(input_ids).reshape(N*K,-1)
 
         # Get hours elapsed
         hours_elapsed = np.array(
             list(
                 itertools.chain.from_iterable(
                     [
-                        [np.random.randint(0, 100)] * K * 16
+                        [data.HOURS_ELAPSED[i]] * K 
                         for i in range(N) # one per feature-bin strategy row
                     ]
                 )
@@ -198,7 +197,7 @@ class CustomDataset(Dataset):
             list(
                 itertools.chain.from_iterable(
                     [
-                        [np.random.uniform(0,1)] * K * 16
+                        [data.PERCENT_ELAPSED[i]] * K
                         for i in range(N) # one per feature-bin strategy row
                     ]
                 )
@@ -209,7 +208,7 @@ class CustomDataset(Dataset):
             list(
                 itertools.chain.from_iterable(
                     [
-                        [1] * K * 16
+                        [1] * K
                         for i in range(N) # one per feature-bin strategy row
                     ]
                 )

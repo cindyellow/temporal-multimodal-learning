@@ -242,7 +242,7 @@ class Trainer:
                     if tabular_hours_elapsed is not None:
                         tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
                         combined_cat, combined_hours = self.model.combine_sequences(category_ids.to(self.device, dtype=torch.long), tabular_cat_proxy, hours_elapsed.to(self.device, dtype=torch.long), tabular_hours_elapsed)
-                        cutoffs = get_cutoffs(tabular_hours_elapsed, tabular_cat_proxy)
+                        cutoffs = get_cutoffs(combined_hours, combined_cat)
 
                     # Auxiliary task of predicting next document category
                     if (

@@ -239,7 +239,7 @@ def evaluate(
                     tabular_elapsed = torch.tensor(tabular_elapsed).to(device, dtype=torch.long)
                     tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
                     combined_cat, combined_hours = model.combine_sequences(category_ids.to(device, dtype=torch.long), tabular_cat_proxy, hours_elapsed.to(device, dtype=torch.long), tabular_elapsed)
-                    cutoffs = get_cutoffs(tabular_elapsed, tabular_cat_proxy)
+                    cutoffs = get_cutoffs(combined_hours, combined_cat)
 
                 # run through LWAN to get the scores
                 scores = model.label_attn(sequence_output, cutoffs=cutoffs)
@@ -272,7 +272,7 @@ def evaluate(
                 if tabular_hours_elapsed is not None:
                     tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1
                     combined_cat, combined_hours = model.combine_sequences(category_ids.to(device, dtype=torch.long), tabular_cat_proxy, hours_elapsed.to(device, dtype=torch.long), tabular_hours_elapsed)
-                    cutoffs = get_cutoffs(tabular_hours_elapsed, tabular_cat_proxy)
+                    cutoffs = get_cutoffs(combined_hours, combined_cat)
 
             if aux_task == "next_document_category":
                 if len(category_ids) > 1 and aux_predictions is not None:
