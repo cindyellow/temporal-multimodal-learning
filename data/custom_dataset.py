@@ -159,6 +159,7 @@ class CustomDataset(Dataset):
         encoded_feature_names = [self.tabular_tokenizer.encode(l) for l in labels]
 
         N = min(len(encoded_feature_names), len(data.LABEL))
+        encoded_feature_names = encoded_feature_names[:N]
         # K = 2*len(self.k_list)
         K = len(self.k_list)
 
