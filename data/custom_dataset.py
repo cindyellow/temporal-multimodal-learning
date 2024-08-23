@@ -158,7 +158,7 @@ class CustomDataset(Dataset):
         
         data = data.squeeze(axis=0) # convert to pd series
         
-        ft_max_tok = 50
+        ft_max_tok = 5
         encoded_feature_names = [self.tabular_tokenize(l, ft_max_tok) for l in data.LABEL]
 
         N = len(encoded_feature_names)
