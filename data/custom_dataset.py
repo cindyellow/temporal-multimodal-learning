@@ -185,7 +185,11 @@ class CustomDataset(Dataset):
             for k in self.k_list:
                 fbin_name = f'FBIN_{k}'
                 fbin_name_id = self.tabular_tokenize(fbin_name, 5)
-                efn_k = efn + fbin_name_id
+                if K > 1:
+                    efn_k = efn + fbin_name_id
+                else:
+                    efn_k = efn # don't add bin name if there's single bin
+                    print(efn_k, efn)
                 # wbin_name = f'WBIN_{k}'
                 num_fix_part.extend([cls_token_id] + efn_k + [data[fbin_name][i]])
                 # num_fix_part.extend([cls_token_id] + efn + [data[fbin_name][i]] + 
