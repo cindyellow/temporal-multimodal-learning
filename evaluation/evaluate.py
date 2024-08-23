@@ -150,7 +150,7 @@ def evaluate(
     qualitative_evaluation=False,
     use_tabular=False,
     textualize=False,
-    subset_tabular=False,
+    late_fuse="none",
 ):
     """ Evaluate the model on the validation set.
     """
@@ -194,6 +194,7 @@ def evaluate(
                 tabular_data=None
             if setup == "random":
                 complete_sequence_output = []
+                complete_tabular_output = []
                 # run through data in chunks of max_chunks
                 tabular_elapsed = []
                 for i in range(0, input_ids.shape[0], model.max_chunks):
@@ -203,7 +204,7 @@ def evaluate(
                         tabular_subset = select_tabular_window(tabular_data, 
                                                             percent_elapsed[i : i + model.max_chunks], 
                                                             model.max_tabular_features)                            
-                    sequence_output, tabular_hours_elapsed = model(
+                    sequence_output, tabular_output, tabular_hours_elapsed = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
                         ),
@@ -230,18 +231,27 @@ def evaluate(
                     complete_sequence_output.append(sequence_output)
                     if tabular_hours_elapsed is not None:
                         tabular_elapsed.extend(tabular_hours_elapsed)
+                    if tabular_output is not None:
+                        complete_tabular_output.append(tabular_output)
                 # concatenate the sequence output
                 sequence_output = torch.cat(complete_sequence_output, dim=0)
+                tabular_output = torch.cat(complete_tabular_output, dim=0)
 
                 # update cutoff
                 if len(tabular_elapsed) > 0:
                     tabular_elapsed = torch.tensor(tabular_elapsed)
                     tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
-                    combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
-                    cutoffs = get_cutoffs(combined_hours, combined_cat)
+                    # update cutoff depending on fusion technique
+                    if late_fuse == "predictions":
+                        tabular_cutoffs = get_cutoffs(tabular_elapsed, tabular_cat_proxy)
+                        tabular_scores = model.tabular_label_attn(tabular_output, cutoffs=tabular_cutoffs)
+                    else:
+                        combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
+                        cutoffs = get_cutoffs(combined_hours, combined_cat)
 
                 # run through LWAN to get the scores
                 scores = model.label_attn(sequence_output, cutoffs=cutoffs)
+                
                 if qualitative_evaluation:
                     # NOTE: didn't adapt for tabular
                     attn_output_weights, scores = return_attn_scores(
@@ -284,7 +294,14 @@ def evaluate(
                     preds["hyps_aux"].append(aux_predictions.detach().cpu().numpy())
                     preds["refs_aux"].append(true_categories.detach().cpu().numpy())
 
-            probs = F.sigmoid(scores)
+            if (tabular_scores is not None
+                and reduce_computation):
+                tabular_weight = 0.3
+                note_weight = 0.7
+                weighted_scores = (tabular_weight * tabular_scores) + (note_weight * scores)
+            else:
+                weighted_scores = scores
+            probs = F.sigmoid(weighted_scores)
             ids.append(data["notes"]["hadm_id"][0].item())
             avail_doc_count.append(avail_docs)
             preds["hyps"].append(probs[-1, :].detach().cpu().numpy())

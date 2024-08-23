@@ -300,9 +300,11 @@ class Trainer:
                         )
                     else:
                         loss_aux = torch.tensor(0)
-                    tabular_weight = 0.3
-                    note_weight = 0.7
-                    if tabular_scores is not None:
+                    
+                    if (tabular_scores is not None
+                        and self.config["reduce_computation"]):
+                        tabular_weight = 0.3
+                        note_weight = 0.7
                         weighted_scores = (tabular_weight * tabular_scores) + (note_weight * scores)
                     else:
                         weighted_scores = scores
@@ -511,7 +513,7 @@ class Trainer:
             reduce_computation=self.config["reduce_computation"],
             use_tabular=self.config["use_tabular"],
             textualize=self.config["textualize"],
-            subset_tabular=self.config["subset_tabular"],
+            late_fuse=self.config["late_fuse"],
         )
         # print(validation_metrics_temp)
         train_metrics["loss"] = np.mean(train_loss["loss_total"])

@@ -382,6 +382,16 @@ class Model(nn.Module):
                 )
             if self.late_fuse == "gate":
                 self.gate = GatedFusion(self.max_chunks, self.hidden_size)
+            elif self.late_fuse == "predictions":
+                self.tabular_label_attn = TemporalMultiHeadLabelAttentionClassifier(
+                self.hidden_size,
+                1,
+                self.num_labels,
+                self.num_heads_labattn,
+                device=device,
+                all_tokens=False,
+                reduce_computation=self.reduce_computation,
+            )
             # self.crossmodal_regressor = HierARDocumentTransformer(
             #         self.hidden_size, self.num_layers, self.num_attention_heads
             #     )
@@ -567,6 +577,7 @@ class Model(nn.Module):
 
         # TODO: add tabular data here
         tabular_hours_elapsed = None
+        tabular_output = None
         if self.use_tabular and tabular_data:
             if len(tabular_data['input_ids'].shape) > 2:
                 tabular_data = {k:v[0] for k,v in tabular_data.items()}
@@ -668,8 +679,8 @@ class Model(nn.Module):
             if self.late_fuse == "predictions":
                 # feed tabular data through LWAN
                 tabular_cutoffs = get_cutoffs(tabular_hours_elapsed, tabular_cat_proxy)
-                tabular_scores = self.label_attn(tabular_output, cutoffs=tabular_cutoffs) # M x L x D
-                tabular_hours_elapsed = None
+                tabular_scores = self.tabular_label_attn(tabular_output, cutoffs=tabular_cutoffs) # M x L x D
+                # tabular_hours_elapsed = None
             else:
                 if self.late_fuse == "embeddings":
                     sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
@@ -686,6 +697,6 @@ class Model(nn.Module):
 
         else:
             if self.use_all_tokens:
-                return sequence_output_all, tabular_hours_elapsed
+                return sequence_output_all, tabular_output, tabular_hours_elapsed
             else:
-                return sequence_output, tabular_hours_elapsed
+                return sequence_output, tabular_output, tabular_hours_elapsed
