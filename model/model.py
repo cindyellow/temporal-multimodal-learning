@@ -471,7 +471,7 @@ class Model(nn.Module):
             if pooling_type == 'temporal-max':
                 time_pooled = time_subset.max(dim=0, keepdim=True).values
             elif pooling_type == 'temporal-sum':
-                time_pooled = time_subset.sum(dim=0, keepdim=True).values # 1 x D
+                time_pooled = time_subset.sum(dim=0, keepdim=True) # 1 x D
             else:
                 raise ValueError
             complete_pooled.append(time_pooled)
@@ -495,7 +495,7 @@ class Model(nn.Module):
             if pooling_type == 'max':
                 time_pooled = time_subset.max(dim=0, keepdim=True).values
             elif pooling_type == 'sum':
-                time_pooled = time_subset.sum(dim=0, keepdim=True).values # 1 x D
+                time_pooled = time_subset.sum(dim=0, keepdim=True) # 1 x D
             else:
                 raise ValueError
             complete_pooled.append(time_pooled)
