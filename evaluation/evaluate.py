@@ -235,10 +235,11 @@ def evaluate(
                         complete_tabular_output.append(tabular_output)
                 # concatenate the sequence output
                 sequence_output = torch.cat(complete_sequence_output, dim=0)
-                tabular_output = torch.cat(complete_tabular_output, dim=0)
+                
 
                 # update cutoff
                 if len(tabular_elapsed) > 0:
+                    tabular_output = torch.cat(complete_tabular_output, dim=0)
                     tabular_elapsed = torch.tensor(tabular_elapsed)
                     tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
                     # update cutoff depending on fusion technique
