@@ -485,13 +485,20 @@ class Model(nn.Module):
         complete_pooled = []
         for i in range(windows.shape[0]):
             curr_time = windows[i]
-            prev_time = windows[i-1] if i > 0 else 0
-            time_ind = np.where((time_elapsed <= curr_time) & (time_elapsed > prev_time))[0]
-            time_subset = feature_embedding[time_ind]
-            if time_subset.shape[0] == 0:
-                time_pooled = torch.zeros(1, feature_embedding.shape[1])
-                complete_pooled.append(time_pooled)
+            prev_time = windows[i-1] if i > 0 else -1
+            time_ind = torch.nonzero(torch.logical_and(
+                    time_elapsed > prev_time,
+                    time_elapsed <= curr_time
+                    ))
+            print("ind", time_ind.shape)
+            print("time_elapsed", time_elapsed.shape)
+            if time_ind.shape[0] == 0:
+                # time_pooled = torch.zeros(1, feature_embedding.shape[1]).to(self.device, dtype=torch.float16)
+                complete_pooled.append(complete_pooled[-1])
                 continue
+            print("original:", feature_embedding.shape)
+            time_subset = feature_embedding[time_ind[0]]
+            print("after time subset", time_subset.shape)
             if pooling_type == 'max':
                 time_pooled = time_subset.max(dim=0, keepdim=True).values
             elif pooling_type == 'sum':
@@ -621,11 +628,15 @@ class Model(nn.Module):
                                             tabular_output.view(-1, 1, self.hidden_size)
                                         )  
             if self.late_fuse == "gate":
+                print("before pooling:", tabular_output.shape)
                 tabular_output = self.window_pooling(tabular_output, 
                                                      tabular_percent_elapsed, 
                                                      percent_elapsed, 
                                                      pooling_type='max') # N x D
+                print("after pooling:", tabular_output.shape)
+                print("before gate:", sequence_output.shape)
                 sequence_output = self.gate(sequence_output, tabular_output)
+                print("after gate:", sequence_output.shape)
                 
                 
             if self.late_fuse == "none":              
