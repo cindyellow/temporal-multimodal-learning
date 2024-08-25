@@ -59,7 +59,7 @@ class DataProcessor:
         notes_agg_df = self.add_temporal_information(notes_agg_df)
         # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
         notes_agg_df = self.prepare_setup(notes_agg_df)
-        labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]])
+        labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]], self.config['filter_abnormal'])
         labs_agg_df = self.add_temporal_information(labs_agg_df)
         return notes_agg_df, categories_mapping, labs_agg_df
 
@@ -161,7 +161,7 @@ class DataProcessor:
         return df, all_bin_names
 
     
-    def aggregate_labs(self, adm_disch_time):
+    def aggregate_labs(self, adm_disch_time, filter_abnormal=False):
         # filter NA
         self.labs_df = self.labs_df[self.labs_df.HADM_ID.isna() == False]
         self.labs_df["HADM_ID"] = self.labs_df["HADM_ID"].apply(int)
@@ -175,17 +175,24 @@ class DataProcessor:
 
         self.labs_df = self.labs_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
         self.labs_df = self.labs_df[self.labs_df["CHARTTIME"] < self.labs_df["DISCHARGE_TIME"]]
+        
         self.labs_df["FLAG"] = self.labs_df["FLAG"].fillna('unknown')
         self.labs_df.loc["FLAG_INDEX"] = 0 # default
         self.labs_df.loc[self.labs_df["FLAG"] == 'abnormal', "FLAG_INDEX"] = 1
         self.labs_df.loc[self.labs_df["FLAG"] == 'unknown', "FLAG_INDEX"] = 2
         print({"delta": 0, "abnormal": 1, "unknown": 2})
 
+        imp_lab_path = "lab_ft-imp.txt"
+        if filter_abnormal:
+            print("filtering by abnormal.")
+            self.labs_df = self.labs_df[self.labs_df['FLAG'] == "abnormal"]
+            imp_lab_path = "lab_abnormal_ft-imp.txt"
+
         # merge with dict to get label name
         D_LABITEMS = pd.read_csv(os.path.join(self.dataset_path, "D_LABITEMS.csv"))
         self.labs_df = self.labs_df.merge(D_LABITEMS.loc[:, ['ITEMID', 'LABEL']], on='ITEMID', how='inner').loc[:, ['SUBJECT_ID', 'HADM_ID', 'LABEL', 'CHARTTIME', 'VALUENUM', 'FLAG_INDEX']]
 
-        with open(os.path.join(self.dataset_path, "lab_ft-imp.txt"), 'r') as f:
+        with open(os.path.join(self.dataset_path, imp_lab_path), 'r') as f:
             imp_labs = f.read().splitlines()
         f.close()
         self.labs_df = self.labs_df[self.labs_df['LABEL'].isin(imp_labs)]
