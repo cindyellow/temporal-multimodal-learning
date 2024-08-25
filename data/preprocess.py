@@ -184,8 +184,8 @@ class DataProcessor:
 
         imp_lab_path = "lab_ft-imp.txt"
         if filter_abnormal:
-            print("filtering by abnormal.")
-            self.labs_df = self.labs_df[self.labs_df['FLAG'] == "abnormal"]
+            print("Using abnormal lab importance list.")
+            # self.labs_df = self.labs_df[self.labs_df['FLAG'] == "abnormal"]
             imp_lab_path = "lab_abnormal_ft-imp.txt"
 
         # merge with dict to get label name
