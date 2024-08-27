@@ -165,7 +165,6 @@ class CustomDataset(Dataset):
 
         N = len(encoded_feature_names)
         K = len(self.bin_strategy)*len(self.k_list)
-        print("No. Combos:", K)
         # K = len(self.k_list)
 
         # prepare encoded pieces
@@ -182,7 +181,6 @@ class CustomDataset(Dataset):
             for k in self.k_list:
                 for strat in self.bin_strategy:
                     bin_name = f'{name_to_prefix[strat]}_{k}'
-                    print("Bin name:", bin_name)
                     if K > 1:
                         name_id = self.tabular_tokenize(bin_name, 5)
                         efn_k = efn + name_id
