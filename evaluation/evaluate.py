@@ -123,15 +123,26 @@ def select_tabular_window(tabular_data, percent_elapsed, max_features=16):
     
     if middle_indices.size == 0:
         return None
-    return {"input_ids": tabular_data['input_ids'][0][middle_indices],
-        "input_scales": tabular_data['input_scales'][0][middle_indices],
-        "features_cls_mask": tabular_data['features_cls_mask'][0][middle_indices],
-        "token_type_ids": tabular_data['token_type_ids'][0][middle_indices],
-        "position_ids": tabular_data['position_ids'][0][middle_indices],
-        "hours_elapsed": tabular_data['hours_elapsed'][0][middle_indices],
-        "percent_elapsed": tabular_data['percent_elapsed'][0][middle_indices],
-        "flag_ids": tabular_data['flag_ids'][0][middle_indices],
-        }
+    new_data = {}
+    for k, v in tabular_data.items():
+        filtered_v = v[0][middle_indices]
+        if k == "seq_ids":
+            seq_id_vals = torch.unique(filtered_v).tolist()
+            seq_id_dict = {seq: idx for idx, seq in enumerate(seq_id_vals)}
+            filtered_v = filtered_v.apply_(seq_id_dict.get)
+        new_data[k] = filtered_v
+    
+    return new_data
+        
+    # return {"input_ids": tabular_data['input_ids'][0][middle_indices],
+    #     "input_scales": tabular_data['input_scales'][0][middle_indices],
+    #     "features_cls_mask": tabular_data['features_cls_mask'][0][middle_indices],
+    #     "token_type_ids": tabular_data['token_type_ids'][0][middle_indices],
+    #     "position_ids": tabular_data['position_ids'][0][middle_indices],
+    #     "hours_elapsed": tabular_data['hours_elapsed'][0][middle_indices],
+    #     "percent_elapsed": tabular_data['percent_elapsed'][0][middle_indices],
+    #     "flag_ids": tabular_data['flag_ids'][0][middle_indices],
+    #     }
 
 
 def evaluate(
@@ -186,7 +197,6 @@ def evaluate(
             cutoffs = data["notes"]["cutoffs"]
 
             if (use_tabular 
-                and not textualize 
                 and len(data["tabular"]['input_ids']) > 0
             ): # check if there's tabular data available
                 tabular_data = data["tabular"]
@@ -196,10 +206,30 @@ def evaluate(
                 complete_sequence_output = []
                 # run through data in chunks of max_chunks
                 tabular_elapsed = []
+                if textualize:
+                    # combine inputs prior to batching
+                    tabular_input_ids = tabular_data['input_ids'][0]
+                    tabular_attention_mask = tabular_data['attention_mask'][0]
+                    tabular_seq_ids = tabular_data['seq_ids'][0]
+                    tabular_category_ids = tabular_data['category_ids'][0]
+                    tabular_percent_elapsed = tabular_data['percent_elapsed'][0]
+                    tabular_hours_elapsed = tabular_data['hours_elapsed'][0]
+
+                    input_ids, _ = model.combine_sequences(input_ids, tabular_input_ids, percent_elapsed, tabular_percent_elapsed)
+                    attention_mask, _ = model.combine_sequences(attention_mask, tabular_attention_mask, percent_elapsed, tabular_percent_elapsed)
+                    seq_ids, _ = model.combine_sequences(seq_ids, tabular_seq_ids, percent_elapsed, tabular_percent_elapsed)
+                    category_ids, _ = model.combine_sequences(category_ids, tabular_category_ids, percent_elapsed, tabular_percent_elapsed)
+                    hours_elapsed, percent_elapsed = model.combine_sequences(hours_elapsed, tabular_hours_elapsed, percent_elapsed, tabular_percent_elapsed)
+                    cutoffs = get_cutoffs(hours_elapsed, category_ids)
+                    # update seq ids
+                    seq_id_vals = torch.unique(seq_ids).tolist()
+                    seq_id_dict = {seq: idx for idx, seq in enumerate(seq_id_vals)}
+                    seq_ids = seq_ids.apply_(seq_id_dict.get)
+
                 for i in range(0, input_ids.shape[0], model.max_chunks):
                     # only get the document embeddings
                     tabular_subset = None
-                    if use_tabular:
+                    if use_tabular and not textualize:
                         tabular_subset = select_tabular_window(tabular_data, 
                                                             percent_elapsed[i : i + model.max_chunks], 
                                                             model.max_tabular_features)                            

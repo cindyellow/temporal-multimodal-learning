@@ -208,7 +208,6 @@ class Trainer:
                     percent_elapsed = data["notes"]["percent_elapsed"][0]
                 
                 if (self.config["use_tabular"] 
-                    and not self.textualize 
                     and len(data["tabular"]['input_ids']) > 0): # check if there's tabular data available
                     tabular_data = data["tabular"]
                     if self.setup == "random" and self.subset_tabular:
@@ -222,6 +221,27 @@ class Trainer:
                     enable_flash=False
                 ) as disable:
                     # with autocast():
+                    if self.textualize and tabular_data:
+                        # combine modalities
+                        tabular_input_ids = tabular_data['input_ids']
+                        tabular_attention_mask = tabular_data['attention_mask']
+                        tabular_seq_ids = tabular_data['seq_ids']
+                        tabular_category_ids = tabular_data['category_ids']
+                        tabular_percent_elapsed = tabular_data['percent_elapsed']
+                        tabular_hours_elapsed = tabular_data['hours_elapsed']
+
+                        input_ids, _ = self.model.combine_sequences(input_ids, tabular_input_ids, percent_elapsed, tabular_percent_elapsed)
+                        attention_mask, _ = self.model.combine_sequences(attention_mask, tabular_attention_mask, percent_elapsed, tabular_percent_elapsed)
+                        seq_ids, _ = self.model.combine_sequences(seq_ids, tabular_seq_ids, percent_elapsed, tabular_percent_elapsed)
+                        category_ids, _ = self.model.combine_sequences(category_ids, tabular_category_ids, percent_elapsed, tabular_percent_elapsed)
+                        hours_elapsed, percent_elapsed = self.model.combine_sequences(hours_elapsed, tabular_hours_elapsed, percent_elapsed, tabular_percent_elapsed)
+                        cutoffs = get_cutoffs(hours_elapsed, category_ids)
+                        # update seq ids
+                        seq_id_vals = torch.unique(seq_ids).tolist()
+                        seq_id_dict = {seq: idx for idx, seq in enumerate(seq_id_vals)}
+                        seq_ids = seq_ids.apply_(seq_id_dict.get)
+                        tabular_data = None
+
                     scores, doc_embeddings, aux_predictions, tabular_scores, tabular_hours_elapsed = self.model(
                         input_ids=input_ids.to(self.device, dtype=torch.long),
                         attention_mask=attention_mask.to(self.device, dtype=torch.long),

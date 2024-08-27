@@ -261,6 +261,75 @@ class CustomDataset(Dataset):
                 'percent_elapsed': percent_elapsed,
                 'flag_ids': flag_ids}
     
+    def textualize_tabular(self, data):
+        if data.empty:
+            return { "input_ids": [],
+            "attention_mask": [],
+            "seq_ids": [],
+            "category_ids": [],
+            "hours_elapsed": [],
+            "percent_elapsed": []
+            }
+        data = data.squeeze(axis=0)
+        output = [self.tokenize(doc) for doc in data.TEXT]
+        input_ids = torch.cat(
+            [doc["input_ids"] for doc in output]
+        )  # this concatenates to (overall # chunks, 512)
+        attention_mask = torch.cat([doc["attention_mask"] for doc in output])
+        seq_ids = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [[i] * len(output[i]["input_ids"]) for i in range(len(output))]
+                )
+            )
+        )
+        category_ids = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [15] * len(output[i]["input_ids"])
+                        for i in range(len(output))
+                    ]
+                )
+            )
+        )
+        hours_elapsed = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [data.HOURS_ELAPSED[i]] * len(output[i]["input_ids"])
+                        for i in range(len(output))
+                    ]
+                )
+            )
+        )
+
+        percent_elapsed = np.array(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [data.PERCENT_ELAPSED[i]] * len(output[i]["input_ids"])
+                        for i in range(len(output))
+                    ]
+                )
+            )
+        )
+
+        input_ids = input_ids[:]
+        attention_mask = attention_mask[:]
+        seq_ids = torch.LongTensor(seq_ids)
+        category_ids = torch.LongTensor(category_ids)
+        seq_ids = seq_ids[:]
+        category_ids = category_ids[:]
+
+        return {"input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "seq_ids": seq_ids,
+            "category_ids": category_ids,
+            "hours_elapsed": hours_elapsed,
+            "percent_elapsed": percent_elapsed
+            }
+    
     def __getitem__(self, idx):
         np.random.seed(1)
         encoded = {}
@@ -271,18 +340,18 @@ class CustomDataset(Dataset):
         all_hours = data.HOURS_ELAPSED
         all_category = data.CATEGORY_INDEX
 
-        if self.use_tabular and self.textualize:
-            lab_data = self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id]
-            lab_data = lab_data.squeeze(axis=0)
-            if not lab_data.empty:
-                merged_text = data.TEXT + lab_data.TEXT # merge lists
-                merged_times = data.PERCENT_ELAPSED + lab_data.PERCENT_ELAPSED  
-                merged_hours = data.HOURS_ELAPSED + lab_data.HOURS_ELAPSED
-                merged_category = data.CATEGORY_INDEX + [15] * len(lab_data.TEXT)
-                all_times = [x for x in sorted(merged_times)]
-                all_text = [x for _, x in sorted(zip(merged_times, merged_text))] # sort by percent elapsed
-                all_hours = [x for _, x in sorted(zip(merged_times, merged_hours))]
-                all_category = [x for _, x in sorted(zip(merged_times, merged_category))]
+        # if self.use_tabular and self.textualize:
+        #     lab_data = self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id]
+        #     lab_data = lab_data.squeeze(axis=0)
+        #     if not lab_data.empty:
+        #         merged_text = data.TEXT + lab_data.TEXT # merge lists
+        #         merged_times = data.PERCENT_ELAPSED + lab_data.PERCENT_ELAPSED  
+        #         merged_hours = data.HOURS_ELAPSED + lab_data.HOURS_ELAPSED
+        #         merged_category = data.CATEGORY_INDEX + [15] * len(lab_data.TEXT)
+        #         all_times = [x for x in sorted(merged_times)]
+        #         all_text = [x for _, x in sorted(zip(merged_times, merged_text))] # sort by percent elapsed
+        #         all_hours = [x for _, x in sorted(zip(merged_times, merged_hours))]
+        #         all_category = [x for _, x in sorted(zip(merged_times, merged_category))]
             # calculate output by tokenizing each item in merged list
         
         output = [self.tokenize(doc) for doc in all_text]
@@ -384,8 +453,29 @@ class CustomDataset(Dataset):
         seq_ids = seq_ids.apply_(seq_id_dict.get)
         cutoffs = self._get_cutoffs(hours_elapsed, category_ids)
 
-        if self.use_tabular and not self.textualize:
-            lab_data = self.encode_tabular(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id])
+        if self.use_tabular: 
+            if self.textualize:
+                lab_data = self.textualize_tabular(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id])
+                encoded["tabular"] = {
+                    "input_ids": lab_data['input_ids'],
+                    "attention_mask": lab_data['attention_mask'],
+                    "seq_ids": lab_data['seq_ids'],
+                    "category_ids": lab_data['category_ids'],
+                    "hours_elapsed": lab_data['hours_elapsed'],
+                    "percent_elapsed": lab_data['percent_elapsed']
+                }
+            else:
+                lab_data = self.encode_tabular(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id])
+                encoded["tabular"] = {
+                    "input_ids": lab_data['input_ids'],
+                    "input_scales": lab_data['input_scales'],
+                    "features_cls_mask": lab_data['features_cls_mask'],
+                    "token_type_ids": lab_data['token_type_ids'],
+                    "position_ids": lab_data['position_ids'],
+                    "hours_elapsed": lab_data['hours_elapsed'],
+                    "percent_elapsed": lab_data['percent_elapsed'],
+                    "flag_ids": lab_data['flag_ids']
+                }
             # if self.setup == "latest":
             #     encoded["tabular"] = {
             #         "input_ids": lab_data['input_ids'][-self.max_chunks :],
@@ -413,16 +503,7 @@ class CustomDataset(Dataset):
             #     }
 
             # elif self.setup == "random":
-            encoded["tabular"] = {
-                "input_ids": lab_data['input_ids'],
-                "input_scales": lab_data['input_scales'],
-                "features_cls_mask": lab_data['features_cls_mask'],
-                "token_type_ids": lab_data['token_type_ids'],
-                "position_ids": lab_data['position_ids'],
-                "hours_elapsed": lab_data['hours_elapsed'],
-                "percent_elapsed": lab_data['percent_elapsed'],
-                "flag_ids": lab_data['flag_ids']
-            }
+                
 
         encoded["notes"] = {
             "input_ids": input_ids,

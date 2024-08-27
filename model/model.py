@@ -399,25 +399,25 @@ class Model(nn.Module):
     def _initialize_embeddings(self):
         self.pelookup = nn.parameter.Parameter(
             torch.normal(
-                0, 0.1, size=(self.max_chunks, 1, self.hidden_size), dtype=torch.float
+                0, 0.1, size=(2*self.max_chunks, 1, self.hidden_size), dtype=torch.float
             ),
             requires_grad=True,
         )
         self.reversepelookup = nn.parameter.Parameter(
             torch.normal(
-                0, 0.1, size=(self.max_chunks, 1, self.hidden_size), dtype=torch.float
+                0, 0.1, size=(2*self.max_chunks, 1, self.hidden_size), dtype=torch.float
             ),
             requires_grad=True,
         )
         self.delookup = nn.parameter.Parameter(
             torch.normal(
-                0, 0.1, size=(self.max_chunks, 1, self.hidden_size), dtype=torch.float
+                0, 0.1, size=(2*self.max_chunks, 1, self.hidden_size), dtype=torch.float
             ),
             requires_grad=True,
         )
         self.reversedelookup = nn.parameter.Parameter(
             torch.normal(
-                0, 0.1, size=(self.max_chunks, 1, self.hidden_size), dtype=torch.float
+                0, 0.1, size=(2*self.max_chunks, 1, self.hidden_size), dtype=torch.float
             ),
             requires_grad=True,
         )
@@ -532,6 +532,7 @@ class Model(nn.Module):
         return_attn_weights=False,
         **kwargs
     ):
+            
         max_seq_id = seq_ids[-1].item()
         reverse_seq_ids = max_seq_id - seq_ids
 
@@ -580,7 +581,7 @@ class Model(nn.Module):
 
         # TODO: add tabular data here
         tabular_hours_elapsed = None
-        if self.use_tabular and tabular_data:
+        if self.use_tabular and tabular_data and not self.textualize:
             if len(tabular_data['input_ids'].shape) > 2:
                 tabular_data = {k:v[0] for k,v in tabular_data.items()}
             tabular_input_ids = tabular_data['input_ids']
