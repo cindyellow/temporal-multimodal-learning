@@ -308,7 +308,7 @@ class GatedFusion(nn.Module):
             ) # accommodate for varied chunk lengths
         alpha = (torch.linalg.vector_norm(E_n, dim=1)/torch.linalg.vector_norm(H, dim=1)) * beta
         alpha = torch.clamp(alpha, max=1).reshape(-1,1)
-        output = E_n + (alpha * H)
+        output = ((1 - alpha) * E_n) + (alpha * H)
         return output
 
 
