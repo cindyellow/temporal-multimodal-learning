@@ -3,7 +3,9 @@ import torch
 import transformers
 
 
-def get_dataset(notes_agg_df, labs_agg_df, split, tokenizer, tabular_tokenizer, max_chunks, setup, limit_ds=0, use_tabular=False, textualize=False, k_list=[4]):
+def get_dataset(notes_agg_df, labs_agg_df, split, tokenizer, tabular_tokenizer, 
+                max_chunks, setup, limit_ds=0, use_tabular=False, textualize=False, 
+                k_list=[4], bin_strategy=["frequency"]):
     return CustomDataset(
         notes_agg_df[notes_agg_df.SPLIT == split],
         labs_agg_df[labs_agg_df.SPLIT == split],
@@ -14,7 +16,8 @@ def get_dataset(notes_agg_df, labs_agg_df, split, tokenizer, tabular_tokenizer, 
         limit_ds=limit_ds,
         use_tabular=use_tabular,
         textualize=textualize,
-        k_list=k_list
+        k_list=k_list,
+        bin_strategy=bin_strategy
     )
 
 

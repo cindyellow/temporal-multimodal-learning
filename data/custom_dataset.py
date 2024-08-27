@@ -47,7 +47,8 @@ class CustomDataset(Dataset):
         batch_size=None,
         use_tabular=False,
         textualize=False,
-        k_list=[4]
+        k_list=[4],
+        bin_strategy=["frequency"]
     ):
         self.notes_agg_df = notes_agg_df
         self.labs_agg_df = labs_agg_df
@@ -60,6 +61,7 @@ class CustomDataset(Dataset):
         self.use_tabular = use_tabular
         self.textualize = textualize
         self.k_list = k_list
+        self.bin_strategy = bin_strategy
         np.random.seed(1)
 
     def __len__(self):
@@ -162,39 +164,31 @@ class CustomDataset(Dataset):
         encoded_feature_names = [self.tabular_tokenize(l, ft_max_tok) for l in data.LABEL]
 
         N = len(encoded_feature_names)
-        # K = 2*len(self.k_list)
-        K = len(self.k_list)
+        K = len(self.bin_strategy)*len(self.k_list)
+        print("No. Combos:", K)
+        # K = len(self.k_list)
 
         # prepare encoded pieces
         cls_token_id = self.tabular_tokenizer.cls_token_id
-        sep_token_id = self.tabular_tokenizer.sep_token_id
-        pad_token_id = self.tabular_tokenizer.pad_token_id
-        mask_token_id = self.tabular_tokenizer.mask_token_id
 
         num_fix_part, num_token_types, num_position_ids, \
             num_feature_cls_mask, num_input_scales = [], [], [], [], []
         
         num_num_token = 0
 
+        name_to_prefix = {"frequency": "FBIN", "width": "WBIN"}
+
         for i, efn in enumerate(encoded_feature_names):
-            # if len(efn) >= ft_max_tok:
-            #     efn = efn[:ft_max_tok]
-            # else:
-            #     efn += ([pad_token_id] * (ft_max_tok - len(efn)))
-            # TODO: extend list for each of k bins
             for k in self.k_list:
-                fbin_name = f'FBIN_{k}'
-                fbin_name_id = self.tabular_tokenize(fbin_name, 5)
-                if K > 1:
-                    efn_k = efn + fbin_name_id
-                else:
-                    efn_k = efn # don't add bin name if there's single bin
-                # wbin_name = f'WBIN_{k}'
-                num_fix_part.extend([cls_token_id] + efn_k + [data[fbin_name][i]])
-                # num_fix_part.extend([cls_token_id] + efn + [data[fbin_name][i]] + 
-                #                     [cls_token_id] + efn + [data[wbin_name][i]])
-                # for _ in range(2):
-                for _ in range(1):
+                for strat in self.bin_strategy:
+                    bin_name = f'{name_to_prefix[strat]}_{k}'
+                    print("Bin name:", bin_name)
+                    if K > 1:
+                        name_id = self.tabular_tokenize(bin_name, 5)
+                        efn_k = efn + name_id
+                    else:
+                        efn_k = efn # don't add bin name if there's single bin
+                    num_fix_part.extend([cls_token_id] + efn_k + [data[bin_name][i]])
                     num_token_types.extend([0] + [0] * len(efn_k) + [1]) # continous type (1)
                     num_feature_cls_mask.extend([1] + [0] * len(efn_k) + [0])
                     num_position_ids.extend([0] + [i for i in range(1, len(efn_k)+1)] + [0])
@@ -224,7 +218,7 @@ class CustomDataset(Dataset):
                 itertools.chain.from_iterable(
                     [
                         [data.HOURS_ELAPSED[i]] * K 
-                        for i in range(N) # one per feature-bin strategy row
+                        for i in range(N) # one per feature-bin strategy-k row
                     ]
                 )
             )
