@@ -58,13 +58,19 @@ class DataProcessor:
         notes_agg_df, categories_mapping = self.add_category_information(notes_agg_df)
         notes_agg_df = self.add_temporal_information(notes_agg_df)
         # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
-        notes_agg_df = self.prepare_setup(notes_agg_df)
+        # notes_agg_df = self.prepare_setup(notes_agg_df)
         labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]], self.config['filter_abnormal'])
         labs_agg_df = self.add_temporal_information(labs_agg_df)
+        notes_agg_df = self.prepare_setup(notes_agg_df, labs_agg_df['HADM_ID'])
         return notes_agg_df, categories_mapping, labs_agg_df
 
-    def prepare_setup(self, notes_agg_df):
+    def prepare_setup(self, notes_agg_df, col):
         """Prepare notes depending on experiment set-up"""
+        unique_ids = col.unique().tolist()
+        print("before", notes_agg_df.shape)
+        print("ids", len(unique_ids))
+        notes_agg_df = notes_agg_df[notes_agg_df['HADM_ID'].isin(unique_ids)]
+        print("after", notes_agg_df.shape)
         return notes_agg_df
 
     def filter_discharge_summary(self):

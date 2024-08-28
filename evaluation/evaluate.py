@@ -103,6 +103,10 @@ def select_tabular_window(tabular_data, percent_elapsed, max_features=16):
     left_bound = percent_elapsed[0] if percent_elapsed[0] > 0 else -1
     right_bound = percent_elapsed[-1]
 
+    print("left bound", left_bound)
+    print("right_bound", right_bound)
+    print(min(tabular_data['percent_elapsed'][0]), max(tabular_data['percent_elapsed'][0]))
+
     middle_indices = np.where(
             np.logical_and(tabular_data['percent_elapsed'][0] > left_bound,  
                            tabular_data['percent_elapsed'][0] <= right_bound)
@@ -196,13 +200,21 @@ def evaluate(
                 complete_sequence_output = []
                 # run through data in chunks of max_chunks
                 tabular_elapsed = []
+                if tabular_data is None:
+                    print("eval none.")
+                else:
+                    print("All tabular:", tabular_data['input_ids'].shape)
                 for i in range(0, input_ids.shape[0], model.max_chunks):
                     # only get the document embeddings
                     tabular_subset = None
                     if use_tabular:
                         tabular_subset = select_tabular_window(tabular_data, 
                                                             percent_elapsed[i : i + model.max_chunks], 
-                                                            model.max_tabular_features)                            
+                                                            model.max_tabular_features)
+                        if tabular_subset is not None:
+                            print(tabular_subset['input_ids'].shape)  
+                        else:
+                            print("subset is none.")                          
                     sequence_output, tabular_hours_elapsed = model(
                         input_ids=input_ids[i : i + model.max_chunks].to(
                             device, dtype=torch.long
@@ -227,7 +239,10 @@ def evaluate(
                         tabular_data=tabular_subset,
                         # note_end_chunk_ids=note_end_chunk_ids,
                     )
-                    complete_sequence_output.append(sequence_output)
+                    if sequence_output is not None:
+                        complete_sequence_output.append(sequence_output)
+                    else:
+                        print("Result none.")
                     if tabular_hours_elapsed is not None:
                         tabular_elapsed.extend(tabular_hours_elapsed)
                 # concatenate the sequence output
@@ -237,8 +252,8 @@ def evaluate(
                 if len(tabular_elapsed) > 0:
                     tabular_elapsed = torch.tensor(tabular_elapsed)
                     tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
-                    combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
-                    cutoffs = get_cutoffs(combined_hours, combined_cat)
+                    # combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
+                    cutoffs = get_cutoffs(tabular_elapsed, tabular_cat_proxy)
 
                 # run through LWAN to get the scores
                 scores = model.label_attn(sequence_output, cutoffs=cutoffs)
