@@ -194,81 +194,95 @@ def evaluate(
                 and len(data["tabular"]['input_ids']) > 0
             ): # check if there's tabular data available
                 tabular_data = data["tabular"]
+                tabular_cat_proxy = torch.ones_like(tabular_data['hours_elapsed'][0]) * -1 
+                cutoffs = get_cutoffs(tabular_data['hours_elapsed'][0], tabular_cat_proxy)
             else:
+                raise ValueError
                 tabular_data=None
             if setup == "random":
-                complete_sequence_output = []
-                # run through data in chunks of max_chunks
-                tabular_elapsed = []
-                if tabular_data is None:
-                    print("eval none.")
-                else:
-                    print("All tabular:", tabular_data['input_ids'].shape)
-                for i in range(0, input_ids.shape[0], model.max_chunks):
-                    # only get the document embeddings
-                    tabular_subset = None
-                    if use_tabular:
-                        tabular_subset = select_tabular_window(tabular_data, 
-                                                            percent_elapsed[i : i + model.max_chunks], 
-                                                            model.max_tabular_features)
-                        if tabular_subset is not None:
-                            print(tabular_subset['input_ids'].shape)  
-                        else:
-                            print("subset is none.")                          
-                    sequence_output, tabular_hours_elapsed = model(
-                        input_ids=input_ids[i : i + model.max_chunks].to(
-                            device, dtype=torch.long
-                        ),
-                        attention_mask=attention_mask[i : i + model.max_chunks].to(
-                            device, dtype=torch.long
-                        ),
-                        seq_ids=seq_ids[i : i + model.max_chunks].to(
-                            device, dtype=torch.long
-                        ),
-                        category_ids=category_ids[i : i + model.max_chunks].to(
-                            device, dtype=torch.long
-                        ),
-                        cutoffs=None,
-                        percent_elapsed=percent_elapsed[i : i + model.max_chunks].to(
-                            device, dtype=torch.float16
-                        ),
-                        hours_elapsed=hours_elapsed[i : i + model.max_chunks].to(
-                            device, dtype=torch.long
-                        ),
-                        is_evaluation=True,
-                        tabular_data=tabular_subset,
-                        # note_end_chunk_ids=note_end_chunk_ids,
-                    )
-                    if sequence_output is not None:
-                        complete_sequence_output.append(sequence_output)
-                    else:
-                        print("Result none.")
-                    if tabular_hours_elapsed is not None:
-                        tabular_elapsed.extend(tabular_hours_elapsed)
-                # concatenate the sequence output
-                sequence_output = torch.cat(complete_sequence_output, dim=0)
+                scores, _, aux_predictions, tabular_scores, tabular_hours_elapsed = model(
+                    input_ids=input_ids.to(device, dtype=torch.long),
+                    attention_mask=attention_mask.to(device, dtype=torch.long),
+                    seq_ids=seq_ids.to(device, dtype=torch.long),
+                    category_ids=category_ids.to(device, dtype=torch.long),
+                    cutoffs=cutoffs,
+                    percent_elapsed=percent_elapsed.to(device, dtype=torch.float16),
+                    hours_elapsed=hours_elapsed.to(device, dtype=torch.long),
+                    # note_end_chunk_ids=note_end_chunk_ids,
+                    tabular_data=tabular_data,
+                )
+                # complete_sequence_output = []
+                # # run through data in chunks of max_chunks
+                # tabular_elapsed = []
+                # if tabular_data is None:
+                #     print("eval none.")
+                # else:
+                #     print("All tabular:", tabular_data['input_ids'].shape)
+                # for i in range(0, input_ids.shape[0], model.max_chunks):
+                #     # only get the document embeddings
+                #     tabular_subset = None
+                #     if use_tabular:
+                #         tabular_subset = select_tabular_window(tabular_data, 
+                #                                             percent_elapsed[i : i + model.max_chunks], 
+                #                                             model.max_tabular_features)
+                #         if tabular_subset is not None:
+                #             print(tabular_subset['input_ids'].shape)  
+                #         else:
+                #             print("subset is none.")                          
+                #     sequence_output, tabular_hours_elapsed = model(
+                #         input_ids=input_ids[i : i + model.max_chunks].to(
+                #             device, dtype=torch.long
+                #         ),
+                #         attention_mask=attention_mask[i : i + model.max_chunks].to(
+                #             device, dtype=torch.long
+                #         ),
+                #         seq_ids=seq_ids[i : i + model.max_chunks].to(
+                #             device, dtype=torch.long
+                #         ),
+                #         category_ids=category_ids[i : i + model.max_chunks].to(
+                #             device, dtype=torch.long
+                #         ),
+                #         cutoffs=None,
+                #         percent_elapsed=percent_elapsed[i : i + model.max_chunks].to(
+                #             device, dtype=torch.float16
+                #         ),
+                #         hours_elapsed=hours_elapsed[i : i + model.max_chunks].to(
+                #             device, dtype=torch.long
+                #         ),
+                #         is_evaluation=True,
+                #         tabular_data=tabular_subset,
+                #         # note_end_chunk_ids=note_end_chunk_ids,
+                #     )
+                #     if sequence_output is not None:
+                #         complete_sequence_output.append(sequence_output)
+                #     else:
+                #         print("Result none.")
+                #     if tabular_hours_elapsed is not None:
+                #         tabular_elapsed.extend(tabular_hours_elapsed)
+                # # concatenate the sequence output
+                # sequence_output = torch.cat(complete_sequence_output, dim=0)
 
-                # update cutoff
-                if len(tabular_elapsed) > 0:
-                    tabular_elapsed = torch.tensor(tabular_elapsed)
-                    tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
-                    # combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
-                    cutoffs = get_cutoffs(tabular_elapsed, tabular_cat_proxy)
+                # # update cutoff
+                # if len(tabular_elapsed) > 0:
+                #     tabular_elapsed = torch.tensor(tabular_elapsed)
+                #     tabular_cat_proxy = torch.ones_like(tabular_elapsed) * -1
+                #     # combined_cat, combined_hours = model.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_elapsed)
+                #     cutoffs = get_cutoffs(tabular_elapsed, tabular_cat_proxy)
 
-                # run through LWAN to get the scores
-                scores = model.label_attn(sequence_output, cutoffs=cutoffs)
-                if qualitative_evaluation:
-                    # NOTE: didn't adapt for tabular
-                    attn_output_weights, scores = return_attn_scores(
-                        model.label_attn, sequence_output.to(device), cutoffs=cutoffs
-                    )
-                    weights_per_class = update_weights_per_class(
-                        labels,
-                        cutoffs,
-                        category_ids,
-                        attn_output_weights,
-                        weights_per_class,
-                    )
+                # # run through LWAN to get the scores
+                # scores = model.label_attn(sequence_output, cutoffs=cutoffs)
+                # if qualitative_evaluation:
+                #     # NOTE: didn't adapt for tabular
+                #     attn_output_weights, scores = return_attn_scores(
+                #         model.label_attn, sequence_output.to(device), cutoffs=cutoffs
+                #     )
+                #     weights_per_class = update_weights_per_class(
+                #         labels,
+                #         cutoffs,
+                #         category_ids,
+                #         attn_output_weights,
+                #         weights_per_class,
+                #     )
 
             else:
                 scores, _, aux_predictions, tabular_scores, tabular_hours_elapsed = model(
