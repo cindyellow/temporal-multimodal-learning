@@ -294,6 +294,12 @@ class GatedFusion(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.linear2 = nn.Linear(self.hidden_size, self.hidden_size)
         self.beta = nn.Parameter(torch.randn(self.num_features), requires_grad=True)
+        self.alpha = nn.parameter.Parameter(
+            torch.normal(
+                0, 0.1, size=(self.num_features), dtype=torch.float
+            ),
+            requires_grad=True,
+        )
     
     def forward(self, E_n, E_t):
         # concat the two embeddings
@@ -303,11 +309,14 @@ class GatedFusion(nn.Module):
         g = self.sigmoid(combined) # D x 1
         H = self.linear2(g * E_t)
         seq_ids = torch.arange(Nc).to(self.device, dtype=torch.long)
-        beta = torch.index_select(
-                self.beta, dim=0, index=seq_ids
-            ) # accommodate for varied chunk lengths
-        alpha = (torch.linalg.vector_norm(E_n, dim=1)/torch.linalg.vector_norm(H, dim=1)) * beta
-        alpha = torch.clamp(alpha, max=1).reshape(-1,1)
+        # beta = torch.index_select(
+        #         self.beta, dim=0, index=seq_ids
+        #     ) # accommodate for varied chunk lengths
+        # alpha = (torch.linalg.vector_norm(E_n, dim=1)/torch.linalg.vector_norm(H, dim=1)) * beta
+        # alpha = torch.clamp(alpha, max=1).reshape(-1,1)
+        alpha = torch.index_select(
+                self.alpha, dim=0, index=seq_ids
+            )
         output = ((1 - alpha) * E_n) + (alpha * H)
         return output
 
