@@ -69,6 +69,7 @@ if __name__ == "__main__":
     parser.add_argument('-me','--use_modality_embeddings', type=boolean_string, default=False, help="  ")
     parser.add_argument('-fe','--use_flag_embeddings', type=boolean_string, default=False, help="  ")
     parser.add_argument('-fa','--filter_abnormal', type=boolean_string, default=False, help="  ")
+    parser.add_argument('-lp','--load_pretrained', type=boolean_string, default=False, help="  ")
 
 
     args = parser.parse_args()
@@ -144,6 +145,7 @@ if __name__ == "__main__":
         "late_fuse": args_config["late_fuse"],
         "use_tabular_attn": args_config["use_tabular_attn"],
         "filter_abnormal": args_config["filter_abnormal"],
+        "load_pretrained": args_config["load_pretrained"]
     }
 
     print("Bin param", config['k_list'])
@@ -248,6 +250,14 @@ if __name__ == "__main__":
                     config["project_path"], f"results/{config['run_name']}_{time}.csv"
                 )
             )  # Create dummy csv because of GDrive bug
+        # load from pretrained
+        if config["load_pretrained"]: 
+            pretrained_checkpoint = torch.load(
+            os.path.join(
+                config["project_path"], f"results/MMULA_evaluate.pth"
+            )
+            )
+            model.load_state_dict(pretrained_checkpoint["model_state_dict"], strict=False)
     results = {}
 
 

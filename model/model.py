@@ -431,7 +431,7 @@ class Model(nn.Module):
             requires_grad=True,
         )
         self.celookup = nn.parameter.Parameter(
-            torch.normal(0, 0.1, size=(16, 1, self.hidden_size), dtype=torch.float),
+            torch.normal(0, 0.1, size=(15, 1, self.hidden_size), dtype=torch.float),
             requires_grad=True,
         )
 
