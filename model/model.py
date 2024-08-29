@@ -283,23 +283,31 @@ class GatedFusion(nn.Module):
         self,
         num_features,
         hidden_size,
+        use_one_alpha,
         device
     ):
         super().__init__()
         self.num_features = num_features
         self.hidden_size = hidden_size
+        self.use_one_alpha = use_one_alpha
         self.device = device
 
         self.linear1 = nn.Linear(2*self.hidden_size, self.hidden_size)
         self.sigmoid = nn.Sigmoid()
         self.linear2 = nn.Linear(self.hidden_size, self.hidden_size)
-        self.beta = nn.Parameter(torch.randn(self.num_features), requires_grad=True)
-        self.alpha = nn.parameter.Parameter(
-            torch.normal(
-                0, 0.1, size=(self.num_features), dtype=torch.float
-            ),
-            requires_grad=True,
-        )
+        # self.beta = nn.Parameter(torch.randn(self.num_features), requires_grad=True)
+        if self.use_one_alpha:
+            self.alpha = nn.parameter.Parameter(
+                torch.randn(1, dtype=torch.float),
+                requires_grad=True,
+            )
+        else:
+            self.alpha = nn.parameter.Parameter(
+                torch.normal(
+                    0, 0.1, size=(self.num_features), dtype=torch.float
+                ),
+                requires_grad=True,
+            )
     
     def forward(self, E_n, E_t):
         # concat the two embeddings
@@ -314,10 +322,13 @@ class GatedFusion(nn.Module):
         #     ) # accommodate for varied chunk lengths
         # alpha = (torch.linalg.vector_norm(E_n, dim=1)/torch.linalg.vector_norm(H, dim=1)) * beta
         # alpha = torch.clamp(alpha, max=1).reshape(-1,1)
-        alpha = torch.index_select(
-                self.alpha, dim=0, index=seq_ids
-            )
-        output = ((1 - alpha) * E_n) + (alpha * H)
+        if self.use_one_alpha:
+            output = ((1 - self.alpha) * E_n) + (self.alpha * H)
+        else:
+            alpha = torch.index_select(
+                    self.alpha, dim=0, index=seq_ids
+                )
+            output = ((1 - alpha) * E_n) + (alpha * H)
         return output
 
 
@@ -397,9 +408,10 @@ class Model(nn.Module):
                 self.tabular_regressor = HierARDocumentTransformer(
                     self.hidden_size, self.num_layers, self.num_attention_heads
                 )
-            if self.late_fuse == "gate":
+            if self.late_fuse in ("gate", "gate-notes"):
                 self.gate = GatedFusion(self.max_chunks, 
                                         self.hidden_size, 
+                                        self.use_one_alpha,
                                         self.device)
             # self.crossmodal_regressor = HierARDocumentTransformer(
             #         self.hidden_size, self.num_layers, self.num_attention_heads
@@ -648,6 +660,13 @@ class Model(nn.Module):
                                                      percent_elapsed, 
                                                      pooling_type='max') # N x D
                 sequence_output = self.gate(sequence_output, tabular_output)
+            elif self.late_fuse == "gate-notes":
+                window_sequence_output = self.window_pooling(sequence_output, 
+                                                     percent_elapsed,
+                                                     tabular_percent_elapsed,
+                                                     pooling_type='max') # M x D
+                tabular_output = self.gate(tabular_output, window_sequence_output)
+                sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
                 
                 
             if self.late_fuse == "none":              

@@ -70,6 +70,7 @@ if __name__ == "__main__":
     parser.add_argument('-fe','--use_flag_embeddings', type=boolean_string, default=False, help="  ")
     parser.add_argument('-fa','--filter_abnormal', type=boolean_string, default=False, help="  ")
     parser.add_argument('-lp','--load_pretrained', type=boolean_string, default=False, help="  ")
+    parser.add_argument('-oa','--use_one_alpha', type=boolean_string, default=False, help="  ")
 
 
     args = parser.parse_args()
@@ -145,7 +146,8 @@ if __name__ == "__main__":
         "late_fuse": args_config["late_fuse"],
         "use_tabular_attn": args_config["use_tabular_attn"],
         "filter_abnormal": args_config["filter_abnormal"],
-        "load_pretrained": args_config["load_pretrained"]
+        "load_pretrained": args_config["load_pretrained"],
+        "use_one_alpha": args_config["use_one_alpha"]
     }
 
     print("Bin param", config['k_list'])
