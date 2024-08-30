@@ -303,9 +303,7 @@ class GatedFusion(nn.Module):
             )
         else:
             self.alpha = nn.parameter.Parameter(
-                torch.normal(
-                    0, 0.1, size=(self.num_features), dtype=torch.float
-                ),
+                torch.randn(self.num_features, dtype=torch.float),
                 requires_grad=True,
             )
     
