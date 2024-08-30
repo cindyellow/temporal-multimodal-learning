@@ -303,9 +303,9 @@ class GatedFusion(nn.Module):
             )
         else:
             self.alpha = nn.parameter.Parameter(
-                torch.randn(self.num_features, dtype=torch.float),
-                requires_grad=True,
-            )
+            torch.normal(0, 0.1, size=(self.num_features, 1), dtype=torch.float),
+            requires_grad=True,
+        )
     
     def forward(self, E_n, E_t):
         # concat the two embeddings
