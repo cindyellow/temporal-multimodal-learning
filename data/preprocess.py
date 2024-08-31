@@ -59,7 +59,7 @@ class DataProcessor:
         notes_agg_df = self.add_temporal_information(notes_agg_df)
         # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
         notes_agg_df = self.prepare_setup(notes_agg_df)
-        labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]], self.config['filter_abnormal'])
+        labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]], self.config['filter_features'])
         labs_agg_df = self.add_temporal_information(labs_agg_df)
         return notes_agg_df, categories_mapping, labs_agg_df
 
@@ -103,8 +103,12 @@ class DataProcessor:
         
         # normalize features with train set
         df = df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
+        important_features = list(set(important_features) & set(df.columns))
+        # print("Remaining features:", len(important_features))
         df['is_na'] = df[important_features].isnull().all(1)
         df = df[df['is_na'] == False]
+        df = df.loc[:, df.nunique() > 1]
+        important_features = list(set(important_features) & set(df.columns))
 
         df['ORIG_VAL'] = df[important_features].values.tolist()
 
@@ -158,10 +162,11 @@ class DataProcessor:
         df['NORM_VAL'] = df['NORM_VAL'].apply(clean_bin)
         df['ORIG_VAL'] = df['ORIG_VAL'].apply(clean_bin)
 
+        df.to_csv('test.csv', index=False)
         return df, all_bin_names
 
     
-    def aggregate_labs(self, adm_disch_time, filter_abnormal=False):
+    def aggregate_labs(self, adm_disch_time, filter_features='basic'):
         # filter NA
         self.labs_df = self.labs_df[self.labs_df.HADM_ID.isna() == False]
         self.labs_df["HADM_ID"] = self.labs_df["HADM_ID"].apply(int)
@@ -183,11 +188,13 @@ class DataProcessor:
         print({"delta": 0, "abnormal": 1, "unknown": 2})
 
         imp_lab_path = "lab_ft-imp.txt"
-        if filter_abnormal:
+        if filter_features=='abnormal':
             print("Using abnormal lab importance list.")
             # self.labs_df = self.labs_df[self.labs_df['FLAG'] == "abnormal"]
             imp_lab_path = "lab_abnormal_ft-imp.txt"
-
+        elif filter_features=='less':
+            print("Using generous lab importance list.")
+            imp_lab_path = "incr_imp-lab.txt"
         # merge with dict to get label name
         D_LABITEMS = pd.read_csv(os.path.join(self.dataset_path, "D_LABITEMS.csv"))
         self.labs_df = self.labs_df.merge(D_LABITEMS.loc[:, ['ITEMID', 'LABEL']], on='ITEMID', how='inner').loc[:, ['SUBJECT_ID', 'HADM_ID', 'LABEL', 'CHARTTIME', 'VALUENUM', 'FLAG_INDEX']]
