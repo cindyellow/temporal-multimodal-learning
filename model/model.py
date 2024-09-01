@@ -499,8 +499,9 @@ class Model(nn.Module):
             time_subset = feature_embedding[time_ind] # M x D
             if pooling_type == 'temporal-max':
                 time_pooled = time_subset.max(dim=0, keepdim=True).values
-            elif pooling_type == 'temporal-sum':
-                time_pooled = time_subset.sum(dim=0, keepdim=True) # 1 x D
+            elif pooling_type == 'temporal-avg':
+                assert len(time_subset.shape) == 2
+                time_pooled = time_subset.sum(dim=0, keepdim=True)/time_subset.shape[0] # 1 x D
             else:
                 raise ValueError
             complete_pooled.append(time_pooled)
@@ -632,7 +633,7 @@ class Model(nn.Module):
 
             # pool tabular features
             if self.pool_features != 'none':
-                if self.pool_features in ("temporal-max", "temporal-sum"):
+                if self.pool_features in ("temporal-max", "temporal-avg"):
                     tabular_output, pooled_ind = self.temporal_pooling(tabular_output, tabular_percent_elapsed, pooling_type=self.pool_features)
                 else:    
                     tabular_output, pooled_ind = self.tabular_pooling(tabular_output, len(self.k_list), pooling_type=self.pool_features)

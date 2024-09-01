@@ -63,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument("-ft", "--freeze_tabular", type=boolean_string, default=True, help="  ")
     parser.add_argument('-kl','--k_list', nargs='+', type=int, default=[4], help="List of bin numbers to try")
     parser.add_argument('-bs','--bin_strategy', nargs='+', type=str, default=["frequency"], help="List of bin strategies to try. options: frequency, width")
-    parser.add_argument('-pf','--pool_features', type=str, default="none", help="options: max, sum, temporal-max, temporal-sum, none")
+    parser.add_argument('-pf','--pool_features', type=str, default="none", help="options: max, sum, temporal-max, temporal-avg, none")
     parser.add_argument('-lf','--late_fuse', type=str, default="none", help="options: embeddings, predictions, none")
     parser.add_argument('-ta','--use_tabular_attn', type=boolean_string, default=False, help="  ")
     parser.add_argument('-me','--use_modality_embeddings', type=boolean_string, default=False, help="  ")

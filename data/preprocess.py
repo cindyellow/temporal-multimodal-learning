@@ -194,7 +194,7 @@ class DataProcessor:
             imp_lab_path = "lab_abnormal_ft-imp.txt"
         elif filter_features=='less':
             print("Using generous lab importance list.")
-            imp_lab_path = "incr_imp-lab.txt"
+            imp_lab_path = "incr_imp-lab_less.txt"
         # merge with dict to get label name
         D_LABITEMS = pd.read_csv(os.path.join(self.dataset_path, "D_LABITEMS.csv"))
         self.labs_df = self.labs_df.merge(D_LABITEMS.loc[:, ['ITEMID', 'LABEL']], on='ITEMID', how='inner').loc[:, ['SUBJECT_ID', 'HADM_ID', 'LABEL', 'CHARTTIME', 'VALUENUM', 'FLAG_INDEX']]
