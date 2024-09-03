@@ -71,6 +71,7 @@ if __name__ == "__main__":
     parser.add_argument('-fa','--filter_features', type=str, default="basic", help="  ")
     parser.add_argument('-lp','--load_pretrained', type=boolean_string, default=False, help="  ")
     parser.add_argument('-oa','--use_one_alpha', type=boolean_string, default=False, help="  ")
+    parser.add_argument('-wt','--weight_temporal', nargs='+', type=float, default=[0.2, 0.2, 0.2, 0.2, 0.2], help="Weights for each of 5 temporal cutoffs: [2d, 5d, 13d, noDS, all]")
 
 
     args = parser.parse_args()
@@ -147,11 +148,13 @@ if __name__ == "__main__":
         "use_tabular_attn": args_config["use_tabular_attn"],
         "filter_features": args_config["filter_features"],
         "load_pretrained": args_config["load_pretrained"],
-        "use_one_alpha": args_config["use_one_alpha"]
+        "use_one_alpha": args_config["use_one_alpha"],
+        "weight_temporal": args_config["weight_temporal"]
     }
 
     print("Bin param", config['k_list'])
     print("Bin strategies", config['bin_strategy'])
+    print("Temporal weights", config["weight_temporal"])
     
     with open(os.path.join("", f"results/config_{config['run_name']}.json"), "w") as f:
         json.dump(config, f)

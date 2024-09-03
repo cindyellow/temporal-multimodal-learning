@@ -309,12 +309,17 @@ class Trainer:
                     if self.config["apply_temporal_loss"]:
                         # train with loss on all temporal points
                         # repeat labels to match the number of temporal points
+                        temporal_weights = torch.tensor(self.config["weight_temporal"]).to(self.device, dtype=self.dtype)
+                        assert temporal_weights.shape[0] == weighted_scores.shape[0]
                         loss_cls = F.binary_cross_entropy_with_logits(
                             weighted_scores[:, :],
                             labels.to(self.device, dtype=self.dtype)[None, :].repeat(
                                 weighted_scores.shape[0], 1
                             ),
-                        )
+                            reduction='none'
+                        ).mean(dim=1) # T x 1
+                        loss_cls = torch.sum(temporal_weights * loss_cls)
+                        
                     else:
                         loss_cls = F.binary_cross_entropy_with_logits(
                             weighted_scores[-1, :][None, :],
@@ -338,11 +343,6 @@ class Trainer:
                     # convert to probabilities
                     probs = F.sigmoid(weighted_scores)
                     # print(f"cutoffs: {cutoffs}")
-                    if torch.any(torch.isnan(probs)):
-                        print(f"NA preds for {hadm_id}.")
-                        print("Scores:", weighted_scores)
-                        print("Probs:", probs)
-                        break
                     preds["hyps"].append(probs[-1, :].detach().cpu().numpy())
                     preds["refs"].append(labels.detach().cpu().numpy())
 
@@ -370,11 +370,6 @@ class Trainer:
                     if ((t + 1) % grad_accumulation_steps == 0) or (
                         t + 1 == len(training_generator)
                     ):
-                        # clip gradients
-                        # print('Clipping gradients.')
-                        # self.scaler.unscale_(self.optimizer)
-                        # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                        ## 
                         self.scaler.step(self.optimizer)
                         self.scaler.update()
                         self.optimizer.zero_grad()
