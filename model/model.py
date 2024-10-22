@@ -711,7 +711,7 @@ class Model(nn.Module):
                     # feed tabular data through LWAN
                     tabular_cutoffs = get_cutoffs(tabular_hours_elapsed, tabular_cat_proxy)
                     tabular_scores = self.label_attn(tabular_output, cutoffs=tabular_cutoffs) # M x L x D
-            elif self.late_fuse in ("embeddings", "none"):
+            elif self.late_fuse in ("embeddings", "none", "gate-notes"):
                 if self.late_fuse == "embeddings":
                     sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
                 # update cutoff only when tabular is fused with sequence
