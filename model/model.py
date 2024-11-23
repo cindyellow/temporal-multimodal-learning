@@ -495,10 +495,11 @@ class Model(nn.Module):
         pooled_ind = []
         for i in range(unique_times.shape[0]):
             time_ind = np.where(time_elapsed == unique_times[i])[0]
-            pooled_ind.append(time_ind[0])
             time_subset = feature_embedding[time_ind] # M x D
+            k = min(5, time_subset.shape[0])
+            pooled_ind.extend(time_ind[0:k])
             if pooling_type == 'temporal-max':
-                time_pooled = time_subset.topk(k=min(5, time_subset.shape[0]), dim=0).values
+                time_pooled = time_subset.topk(k=k, dim=0).values
             elif pooling_type == 'temporal-avg':
                 assert len(time_subset.shape) == 2
                 time_pooled = time_subset.sum(dim=0, keepdim=True)/time_subset.shape[0] # 1 x D
