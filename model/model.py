@@ -513,9 +513,10 @@ class Model(nn.Module):
         """Pool everything within each temporal window in windows.
         """
         complete_pooled = []
+        curr_time, prev_time = windows[0], -1
         for i in range(windows.shape[0]):
-            curr_time = windows[i]
-            prev_time = windows[i-1] if i > 0 else -1
+            # curr_time = windows[i]
+            # prev_time = windows[i-1] if i > 0 else -1
             time_ind = torch.nonzero(torch.logical_and(
                     time_elapsed > prev_time,
                     time_elapsed <= curr_time
@@ -532,6 +533,10 @@ class Model(nn.Module):
             else:
                 raise ValueError
             complete_pooled.append(time_pooled)
+            if (i+1) != windows.shape[0]:
+                if windows[i+1] != curr_time:
+                    prev_time = curr_time
+                curr_time = windows[i+1]
         temporal_pooled = torch.cat(complete_pooled, dim=0)
         return temporal_pooled
 
