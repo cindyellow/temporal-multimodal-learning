@@ -1,4 +1,4 @@
-""" version: cascade + value vector without position encoding """
+""" THIS FILE IS DOWNLOADED DIRECTLY FROM TP-BERTA: https://github.com/jyansir/tp-berta"""
 from typing import Tuple, Optional, List, Union
 import math
 from pathlib import Path

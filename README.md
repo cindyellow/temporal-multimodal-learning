@@ -2,8 +2,9 @@
 
 ## Setup
 1. Get access to MIMIC-III
-2. Download TP-BERTa checkpoint pretrained on a single task type (binary) from the [official repository](https://github.com/jyansir/tp-berta)
-3. Change paths accordingly for constants `MIMIC_DIR`, `PROJECT_DIR`, `TABULAR_CHECKPOINT_DIR` in `main.py`.
+2. Create `LABEL_SPLITS.csv`, which is a dataframe that maps each `HADM_ID` to its corresponding `SPLIT_50` and associated `ICD9_CODE`.
+3. Download TP-BERTa checkpoint pretrained on a single task type (binary) from the [official repository](https://github.com/jyansir/tp-berta)
+4. Change paths accordingly for constants `MIMIC_DIR`, `PROJECT_DIR`, `TABULAR_CHECKPOINT_DIR` in `main.py`.
 
 ## Run best model
 ```
