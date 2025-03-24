@@ -1,13 +1,11 @@
-import pandas as pd
 import numpy as np
 import torch
 import tqdm as tqdm
-from tqdm import tqdm
-import ast
-import os
 import itertools
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
+
+FT_MAX_TOK = 5
 
 class CustomDataset(Dataset):
     """Custom dataset for real-time ICD-9 code prediction.
@@ -111,7 +109,6 @@ class CustomDataset(Dataset):
         return cutoffs
 
     def filter_mask(self, seq_ids):
-        # TODO: this is producing a different mask every time, we should fix seed everytime
         """Get selected indices according to the logic:
         1. All indices of the first note
         2. All indices of the last note (a.k.a. discharge summary))
@@ -160,12 +157,10 @@ class CustomDataset(Dataset):
         
         data = data.squeeze(axis=0) # convert to pd series
         
-        ft_max_tok = 5
-        encoded_feature_names = [self.tabular_tokenize(l, ft_max_tok) for l in data.LABEL]
+        encoded_feature_names = [self.tabular_tokenize(l, FT_MAX_TOK) for l in data.LABEL]
 
         N = len(encoded_feature_names)
         K = len(self.bin_strategy)*len(self.k_list)
-        # K = len(self.k_list)
 
         # prepare encoded pieces
         cls_token_id = self.tabular_tokenizer.cls_token_id
@@ -173,8 +168,6 @@ class CustomDataset(Dataset):
         num_fix_part, num_token_types, num_position_ids, \
             num_feature_cls_mask, num_input_scales = [], [], [], [], []
         
-        num_num_token = 0
-
         name_to_prefix = {"frequency": "FBIN", "width": "WBIN"}
 
         for i, efn in enumerate(encoded_feature_names):
@@ -182,33 +175,26 @@ class CustomDataset(Dataset):
                 for strat in self.bin_strategy:
                     bin_name = f'{name_to_prefix[strat]}_{k}'
                     if K > 1:
+                        # add bin name if there's more than one bin strategy
                         name_id = self.tabular_tokenize(bin_name, 5)
-                        efn_k = efn + name_id
-                    else:
-                        efn_k = efn # don't add bin name if there's single bin
-                    num_fix_part.extend([cls_token_id] + efn_k + [data[bin_name][i]])
-                    num_token_types.extend([0] + [0] * len(efn_k) + [1]) # continous type (1)
-                    num_feature_cls_mask.extend([1] + [0] * len(efn_k) + [0])
-                    num_position_ids.extend([0] + [i for i in range(1, len(efn_k)+1)] + [0])
+                        efn += name_id
+                        
+                    num_fix_part.extend([cls_token_id] + efn + [data[bin_name][i]])
+                    num_token_types.extend([0] + [0] * len(efn) + [1]) # continous type (1)
+                    num_feature_cls_mask.extend([1] + [0] * len(efn) + [0])
+                    num_position_ids.extend([0] + [i for i in range(1, len(efn)+1)] + [0])
                     if use_num_multiply:
-                        num_input_scales.extend([data.NORM_VAL[i]] * (1+ len(efn_k))) #TODO: why noot 2+?
-                        # num_input_scales.append(data['NORM_VAL'][i].repeat(1 + len(efn), axis=1)) # scale for feature name toks and bin tok
+                        num_input_scales.extend([data.NORM_VAL[i]] * (1+ len(efn))) 
         num_fix_part = np.array(num_fix_part).reshape(N*K,-1)
-        # num_fix_part[num_fix_part == mask_token_id] = data['BIN'].reshape(-1)
         num_token_types = np.array(num_token_types).reshape(N*K,-1)
-        num_num_token = num_token_types.shape[1]
         num_position_ids = np.array(num_position_ids).reshape(N*K,-1)
         num_feature_cls_mask = np.array(num_feature_cls_mask).reshape(N*K,-1)
         if not use_num_multiply:
             num_input_scales = np.ones_like(num_token_types, dtype=np.float32)
             num_input_scales[num_token_types == 1] = np.repeat(np.array(data.NORM_VAL), K)
             assert num_input_scales.shape[0] == (N*K)
-            # num_input_scales = num_input_scales.flatten()
-            # num_token_types = num_token_types.flatten()
         else:
-            num_input_scales = np.array(num_input_scales).reshape(N*K,-1)
-            # num_input_scales = np.concatenate(num_input_scales, axis=1)
-        
+            num_input_scales = np.array(num_input_scales).reshape(N*K,-1)        
 
         # Get hours elapsed
         hours_elapsed = np.array(
@@ -378,33 +364,6 @@ class CustomDataset(Dataset):
 
         if self.use_tabular and not self.textualize:
             lab_data = self.encode_tabular(self.labs_agg_df[self.labs_agg_df.HADM_ID == hadm_id])
-            # if self.setup == "latest":
-            #     encoded["tabular"] = {
-            #         "input_ids": lab_data['input_ids'][-self.max_chunks :],
-            #         "input_scales": lab_data['input_scales'][-self.max_chunks :],
-            #         "features_cls_mask": lab_data['features_cls_mask'][-self.max_chunks :],
-            #         "token_type_ids": lab_data['token_type_ids'][-self.max_chunks :],
-            #         "position_ids": lab_data['position_ids'][-self.max_chunks :],
-            #         "hours_elapsed": lab_data['hours_elapsed'][-self.max_chunks :],
-            #         "percent_elapsed": lab_data['percent_elapsed'][-self.max_chunks :],
-            #     }
-            # elif self.setup == "uniform":
-            #     raise NotImplementedError
-            #     indices_mask = self.filter_mask(np.array(seq_ids))
-            #     print(indices_mask)
-            #     input_ids = input_ids[indices_mask]
-            #     print(input_ids)
-            #     encoded["tabular"] = {
-            #         "input_ids": lab_data['input_ids'][indices_mask],
-            #         "input_scales": lab_data['input_scales'][indices_mask],
-            #         "features_cls_mask": lab_data['features_cls_mask'][indices_mask],
-            #         "token_type_ids": lab_data['token_type_ids'][indices_mask],
-            #         "position_ids": lab_data['position_ids'][indices_mask],
-            #         "hours_elapsed": lab_data['hours_elapsed'][indices_mask],
-            #         "percent_elapsed": lab_data['percent_elapsed'][indices_mask],
-            #     }
-
-            # elif self.setup == "random":
             encoded["tabular"] = {
                 "input_ids": lab_data['input_ids'],
                 "input_scales": lab_data['input_scales'],

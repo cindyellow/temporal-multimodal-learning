@@ -1,18 +1,12 @@
 import torch
 import torch.nn as nn
-import transformers
 import torch.nn.functional as F
-import ipdb
 from transformers import (
-    AutoModelForSequenceClassification,
-    TrainingArguments,
-    Trainer,
     AutoModel,
     RobertaConfig
 )
 from model.tpberta_modeling import *
 
-import sys
 import os
 import numpy as np
 
@@ -295,7 +289,6 @@ class GatedFusion(nn.Module):
         self.linear1 = nn.Linear(2*self.hidden_size, self.hidden_size)
         self.sigmoid = nn.Sigmoid()
         self.linear2 = nn.Linear(self.hidden_size, self.hidden_size)
-        # self.beta = nn.Parameter(torch.randn(self.num_features), requires_grad=True)
         if self.use_one_alpha:
             self.alpha = nn.parameter.Parameter(
                 torch.randn(1, dtype=torch.float),
@@ -315,11 +308,6 @@ class GatedFusion(nn.Module):
         g = self.sigmoid(combined) # D x 1
         H = self.linear2(g * E_t)
         seq_ids = torch.arange(Nc).to(self.device, dtype=torch.long)
-        # beta = torch.index_select(
-        #         self.beta, dim=0, index=seq_ids
-        #     ) # accommodate for varied chunk lengths
-        # alpha = (torch.linalg.vector_norm(E_n, dim=1)/torch.linalg.vector_norm(H, dim=1)) * beta
-        # alpha = torch.clamp(alpha, max=1).reshape(-1,1)
         if self.use_one_alpha:
             output = ((1 - self.alpha) * E_n) + (self.alpha * H)
         else:
@@ -368,14 +356,6 @@ class Model(nn.Module):
                 all_tokens=self.use_all_tokens,
                 reduce_computation=self.reduce_computation,
             )
-            # self.label_attn = TemporalLabelAttentionClassifier(
-            #     self.hidden_size,
-            #     self.seq_len,
-            #     self.num_labels,
-            #     self.num_heads_labattn,
-            #     device=device,
-            #     all_tokens=self.use_all_tokens,
-            # )
         else:
             self.label_attn = LabelAttentionClassifier(
                 self.hidden_size, self.num_labels
@@ -411,9 +391,6 @@ class Model(nn.Module):
                                         self.hidden_size, 
                                         self.use_one_alpha,
                                         self.device)
-            # self.crossmodal_regressor = HierARDocumentTransformer(
-            #         self.hidden_size, self.num_layers, self.num_attention_heads
-            #     )
 
     def _initialize_embeddings(self):
         self.pelookup = nn.parameter.Parameter(
@@ -516,8 +493,6 @@ class Model(nn.Module):
         complete_pooled = []
         curr_time, prev_time = windows[0], -1
         for i in range(windows.shape[0]):
-            # curr_time = windows[i]
-            # prev_time = windows[i-1] if i > 0 else -1
             time_ind = torch.nonzero(torch.logical_and(
                     time_elapsed > prev_time,
                     time_elapsed <= curr_time
@@ -604,7 +579,6 @@ class Model(nn.Module):
             :, 0, :
         ]  # remove the singleton to get something of shape [#chunks, hidden_size] or [#chunks*512, hidden_size]
 
-        # TODO: add tabular data here
         tabular_hours_elapsed = None
         if self.use_tabular and tabular_data:
             if len(tabular_data['input_ids'].shape) > 2:
@@ -673,8 +647,7 @@ class Model(nn.Module):
                 tabular_output = self.gate(tabular_output, window_sequence_output)
                 sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
                 
-                
-            if self.late_fuse == "none":              
+            elif self.late_fuse == "none":              
                 sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
 
         # if not baseline, add document autoregressor
@@ -685,16 +658,6 @@ class Model(nn.Module):
             )
             assert not torch.any(torch.isnan(sequence_output))
         
-        # # combine after single-modal attn
-        # if self.use_tabular and tabular_data and self.late_fuse == "none":              
-        #     tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1    
-        #     sequence_output, _ = self.combine_sequences(sequence_output, tabular_output, percent_elapsed, tabular_percent_elapsed)
-        #     combined_cat, combined_hours = self.combine_sequences(category_ids, tabular_cat_proxy, hours_elapsed, tabular_hours_elapsed)
-        #     cutoffs = get_cutoffs(combined_hours, combined_cat)
-        #     sequence_output = self.crossmodal_regressor(
-        #         sequence_output.view(-1, 1, self.hidden_size)
-        #     )
-
         # make aux predictions
         if self.aux_task in ("next_document_embedding", "last_document_embedding"):
             if self.apply_transformation:
@@ -707,7 +670,7 @@ class Model(nn.Module):
             aux_predictions = None
         # apply label attention at document-level
 
-        # NOTE: fuse past embeddings with tabular
+        # fuse past embeddings with tabular
         tabular_scores = None
         if self.use_tabular and tabular_data:
             tabular_cat_proxy = torch.ones_like(tabular_hours_elapsed) * -1 

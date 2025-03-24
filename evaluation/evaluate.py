@@ -1,11 +1,8 @@
 from tqdm import tqdm
 import torch
-import pandas as pd
-import os
 import numpy as np
 import torch.nn.functional as F
 import json
-import ipdb
 from data.utils import get_cutoffs
 
 
@@ -107,19 +104,6 @@ def select_tabular_window(tabular_data, percent_elapsed, max_features=16):
             np.logical_and(tabular_data['percent_elapsed'][0] > left_bound,  
                            tabular_data['percent_elapsed'][0] <= right_bound)
     )[0]
-    # middle_indices = np.sort(
-    #         np.random.choice(
-    #             middle_indices,
-    #             max(
-    #                 0,
-    #                 min(
-    #                     len(middle_indices),
-    #                     max_features,
-    #                 ),
-    #             ),
-    #             replace=False,
-    #         )
-    #     )
     
     if middle_indices.size == 0:
         return None
@@ -225,7 +209,6 @@ def evaluate(
                         ),
                         is_evaluation=True,
                         tabular_data=tabular_subset,
-                        # note_end_chunk_ids=note_end_chunk_ids,
                     )
                     complete_sequence_output.append(sequence_output)
                     if tabular_hours_elapsed is not None:

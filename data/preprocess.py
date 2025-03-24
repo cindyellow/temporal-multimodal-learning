@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import ast
 import numpy as np
-from sklearn.preprocessing import StandardScaler, LabelEncoder, QuantileTransformer
+from sklearn.preprocessing import QuantileTransformer
 
 
 class DataProcessor:
@@ -21,9 +21,6 @@ class DataProcessor:
         if config["debug"]:
             print("Debug mode!")
             self.notes_df = self.notes_df.sort_values(by="HADM_ID")[:3000]
-        # self.labels_df = pd.read_csv(
-        #     os.path.join(dataset_path, "splits/caml_splits.csv")
-        # )
         self.dataset_path = dataset_path
         self.labels_df = self.process_labels(
             os.path.join(dataset_path, "LABEL_SPLITS.csv")
@@ -57,7 +54,6 @@ class DataProcessor:
         notes_agg_df = self.aggregate_hadm_id()
         notes_agg_df, categories_mapping = self.add_category_information(notes_agg_df)
         notes_agg_df = self.add_temporal_information(notes_agg_df)
-        # notes_agg_df = self.add_multi_hot_encoding(notes_agg_df)
         notes_agg_df = self.prepare_setup(notes_agg_df)
         labs_agg_df = self.aggregate_labs(notes_agg_df[["HADM_ID", "ADMISSION_TIME", "DISCHARGE_TIME"]], self.config['filter_features'])
         labs_agg_df = self.add_temporal_information(labs_agg_df)
@@ -89,7 +85,7 @@ class DataProcessor:
                 by=["charttime"],
                 na_position="last",
             )
-            .groupby(["subject_id", "hadm_id"]) # TODO: check if subject_id is necessary
+            .groupby(["subject_id", "hadm_id"])
             .agg({"label": list, "charttime": list, "valuenum": list, "valueuom": list})
         ).reset_index()
 
@@ -104,7 +100,6 @@ class DataProcessor:
         # normalize features with train set
         df = df.merge(self.labels_df[['HADM_ID', 'SPLIT']], on=["HADM_ID"], how="left")
         important_features = list(set(important_features) & set(df.columns))
-        # print("Remaining features:", len(important_features))
         df['is_na'] = df[important_features].isnull().all(1)
         df = df[df['is_na'] == False]
         df = df.loc[:, df.nunique() > 1]
@@ -171,9 +166,6 @@ class DataProcessor:
         self.labs_df = self.labs_df[self.labs_df.HADM_ID.isna() == False]
         self.labs_df["HADM_ID"] = self.labs_df["HADM_ID"].apply(int)
 
-        # handle time
-        # self.labs_df.CHARTTIME = self.labs_df.CHARTTIME.fillna(
-        #     self.labs_df.CHARTDATE + " 12:00:00"
         # drop NAs in charttime
         self.labs_df = self.labs_df[self.labs_df.CHARTTIME.isna() == False]
         self.labs_df["CHARTTIME"] = pd.to_datetime(self.labs_df.CHARTTIME)
@@ -190,7 +182,6 @@ class DataProcessor:
         imp_lab_path = "lab_ft-imp.txt"
         if filter_features=='abnormal':
             print("Using abnormal lab importance list.")
-            # self.labs_df = self.labs_df[self.labs_df['FLAG'] == "abnormal"]
             imp_lab_path = "lab_abnormal_ft-imp.txt"
         elif filter_features=='less':
             print("Using generous lab importance list.")
@@ -315,9 +306,6 @@ class DataProcessor:
     
     def add_temporal_information(self, agg_df):
         """Add time information."""
-        # Add temporal information
-        # if ("ADMISSION_TIME" not in agg_df.columns) and ("DISCHARGE_TIME" not in agg_df.columns):
-        #     agg_df = agg_df.merge(adm_disch_time, on=["HADM_ID"], how="inner")
 
         if agg_df.empty:
             return agg_df

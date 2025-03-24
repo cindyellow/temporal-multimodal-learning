@@ -185,7 +185,6 @@ class Trainer:
                 preds["hyps_temp"] = {"2d": [], "5d": [], "13d": [], "noDS": []}
                 preds["refs_temp"] = {"2d": [], "5d": [], "13d": [], "noDS": []}
             for t, data in enumerate(tqdm(training_generator)):
-                hadm_id = data["notes"]["hadm_id"]
                 if self.setup == "random":
                     aug_data = self.random_sampling(data["notes"], self.max_chunks)
                     labels = aug_data["labels"]
@@ -325,7 +324,6 @@ class Trainer:
                             weighted_scores[-1, :][None, :],
                             labels.to(self.device, dtype=self.dtype)[None, :],
                         )
-                    # TODO: delete de 1-weights
                     if self.config["apply_weight"]:
                         loss = (1 - self.config["weight_aux"]) * loss_cls + self.config[
                             "weight_aux"
@@ -342,7 +340,6 @@ class Trainer:
                     train_loss["loss_total"].append(loss.detach().cpu().numpy())
                     # convert to probabilities
                     probs = F.sigmoid(weighted_scores)
-                    # print(f"cutoffs: {cutoffs}")
                     preds["hyps"].append(probs[-1, :].detach().cpu().numpy())
                     preds["refs"].append(labels.detach().cpu().numpy())
 
@@ -366,7 +363,6 @@ class Trainer:
                                     labels.detach().cpu().numpy()
                                 )
 
-                    # print(f"ccutoffs: {cutoffs}, hyprs_temp: {hyps_temp}")
                     if ((t + 1) % grad_accumulation_steps == 0) or (
                         t + 1 == len(training_generator)
                     ):

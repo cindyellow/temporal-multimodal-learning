@@ -1,0 +1,22 @@
+Sodium
+Hemoglobin
+Hematocrit
+Chloride
+Bicarbonate
+Anion Gap
+Urea Nitrogen
+pH
+MCHC
+Creatinine
+Red Blood Cells
+PT
+pO2
+INR(PT)
+Asparate Aminotransferase (AST)
+MCH
+MCV
+Alveolar-arterial Gradient
+Required O2
+Neutrophils
+Calculated Total CO2
+Bilirubin, Total

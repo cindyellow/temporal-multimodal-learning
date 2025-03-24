@@ -1,0 +1,10 @@
+Hemoglobin
+Bicarbonate
+Sodium
+Chloride
+Hematocrit
+Anion Gap
+Urea Nitrogen
+Red Blood Cells
+MCV
+MCHC

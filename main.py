@@ -16,6 +16,9 @@ from torch.cuda.amp import GradScaler, autocast
 from training.trainer import Trainer
 import argparse
 
+MIMIC_DIR = "/vol/bitbucket/ch2223/temp-mm/data/mimiciii"
+PROJECT_DIR = "/vol/bitbucket/ch2223/temporal-multimodal-learning"
+TABULAR_CHECKPOINT_DIR = "model/tpberta-single/tp-bin"
 
 def boolean_string(s):
     if s not in {"False", "True"}:
@@ -93,9 +96,7 @@ if __name__ == "__main__":
     config = {
         #    "run_name": "Run_test_TLWAN"
         "run_name": args_config["run_name"],
-        "project_path": "/vol/bitbucket/ch2223/temporal-multimodal-learning",
-        # pminervini/RoBERTa-base-PM-M3-Voc-hf
-        # "base_checkpoint": os.path.join("", "RoBERTa-base-PM-M3-Voc-hf"),
+        "project_path": PROJECT_DIR,
         "base_checkpoint": "pminervini/RoBERTa-base-PM-M3-Voc-hf",
         "num_attention_heads": args_config["num_attention_heads"],
         "num_layers": args_config["num_layers"],
@@ -138,7 +139,7 @@ if __name__ == "__main__":
         "use_tabular": args_config["use_tabular"],
         "textualize": args_config["textualize"],
         "subset_tabular": args_config["subset_tabular"],
-        "tabular_base_checkpoint": "model/tpberta-single/tp-bin",
+        "tabular_base_checkpoint": TABULAR_CHECKPOINT_DIR,
         "max_tabular_features": args_config["num_tabular_features"],
         "freeze_tabular": args_config["freeze_tabular"],
         "k_list": args_config["k_list"],
@@ -164,7 +165,7 @@ if __name__ == "__main__":
     tabular_tokenizer = get_tabular_tokenizer(config["tabular_base_checkpoint"])
 
     # process and aggregate raw data
-    dp = DataProcessor(dataset_path="/vol/bitbucket/ch2223/temp-mm/data/mimiciii", 
+    dp = DataProcessor(dataset_path=MIMIC_DIR, 
                        config=config, 
                        start_token_id=(tabular_tokenizer.mask_token_id + 1))
     notes_agg_df, categories_mapping, labs_agg_df = dp.aggregate_data()
